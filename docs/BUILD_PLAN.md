@@ -9,7 +9,7 @@ and the rule errors from `BUSINESS_RULES.md` shown inline. See `PRODUCTION_STAND
 
 ## shadcn setup
 ```
-npx shadcn@latest init            # new-york, neutral, CSS variables, Tailwind v4
+npx shadcn@latest init -b radix -p vega   # done; `new-york` is now the `vega` preset (D14), neutral, CSS variables
 npx shadcn@latest add button input label textarea select checkbox switch radio-group form card badge \
   avatar separator skeleton alert dialog sheet drawer popover command dropdown-menu tabs table tooltip \
   hover-card progress calendar sonner breadcrumb sidebar scroll-area toggle-group slider resizable \
@@ -22,18 +22,20 @@ Brand: neutral base with one accent; dark mode via `class`. Typography: system o
 
 ## Phase 0: Foundation (about 1 week)
 Tasks
-- [ ] Apply migrations 0001-0009 to the ops project; expose `ops`; seed founder invite; Advisors clean.
-- [ ] Tests for `0009_access.sql` (list in `ACCESS_MODEL.md`).
-- [ ] Scaffold Next.js + shadcn; `utils/supabase/*` and `middleware.ts` per `ARCHITECTURE.md`.
-- [ ] `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/no-access`.
-- [ ] App shell: `sidebar` with role-aware nav from `lib/permissions.ts` (unit-tested), header with user
+- [ ] Apply migrations 0001-0010 to the hosted ops project; expose `ops`; seed founder invite; Advisors clean.
+      (Done on a local Supabase stack: 0 ERROR/WARN. Hosted: waiting on founder, see `HANDOFF.md`.)
+- [x] Tests for `0009_access.sql` (list in `ACCESS_MODEL.md`) + `0010` advisor-equivalent checks.
+- [x] Scaffold Next.js + shadcn; `utils/supabase/*` and `proxy.ts` (Next 16 name for middleware) per `ARCHITECTURE.md`.
+- [x] `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/no-access`.
+- [x] App shell: `sidebar` with role-aware nav from `lib/permissions.ts` (unit-tested), header with user
       menu + sign-out, `breadcrumb`, `command` search stub, dark mode, toasts.
-- [ ] **Team** page (founder): staff table, invite dialog, edit role/departments, deactivate, pending
+- [x] **Team** page (founder): staff table, invite dialog, edit role/departments, deactivate, pending
       invites (revoke/resend). Server Actions + Zod.
-- [ ] CI (`.github/workflows/ci.yml`): DB tests, lint, typecheck, build.
-- [ ] Generate `lib/db.types.ts`; error-handling helper that maps rule errors to messages.
+- [x] CI (`.github/workflows/ci.yml`): DB tests, lint, typecheck, unit, build, audit, secret scan, e2e + Advisors.
+- [x] Generate `lib/db.types.ts`; error-handling helper that maps rule errors to messages.
 Gate: founder signs in, invites a member and a partner; each sees only what the matrix allows; a
 non-invited Google account lands on `/no-access`; last founder cannot be removed.
+**Status:** passed on a local Supabase stack (`e2e/phase0-gate.spec.ts`); repeat on the hosted project.
 
 ## Phase 1: Revenue and assets (about 3 weeks)
 1. **Institutions + contacts:** list (filters: stage, district, type, owner), create/edit, CSV import

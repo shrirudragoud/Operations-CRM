@@ -15,6 +15,11 @@
 | D10 | Link to PostHog replays, do not rebuild replay | Cost and scope |
 | D11 | Trainer must be certified (or the founder) to lead a scheduled event | Quality control; founder often delivers |
 | D12 | Postgres tested with PGlite in CI | Fast, no external DB needed, runs every rule and RLS check |
+| D13 | Next.js 16: `proxy.ts` instead of `middleware.ts`; `cacheComponents` off, pages render dynamically | Next 16 renamed middleware; every page is per-user + RLS, so Cache Components would add Suspense/validation work with little benefit. Revisit for the cockpit if it gets slow |
+| D14 | shadcn preset `radix-vega` + `field` components instead of `new-york` + `form` | shadcn retired the `new-york` style name (vega is the classic look) and replaced `form` with `field`; React Hook Form + Zod unchanged |
+| D15 | RLS policies consolidated to one per table/action, helpers wrapped in `(select ...)` (`0010`) | Clears the Performance Advisor warnings (37 WARN on 0001-0009) before data grows; policies live in one file |
+| D16 | Partners can open deals only at institutions they own; partners have no departments | Matches the "own rows only" matrix; previously a partner could open a deal at any institution id |
+| D17 | `lib/db.types.ts` generated from the migrations (`tools/gen-types.mjs`) | Types stay in step with migrations without network access to the project; same format as `supabase gen types`, so either can overwrite it |
 
 ## Open questions for the founder (answer before the phase noted)
 1. **Which Supabase project is the ops DB?** The intended ops project is separate from the IDE product DB

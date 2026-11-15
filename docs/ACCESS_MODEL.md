@@ -54,11 +54,21 @@ Bootstrap: `supabase/seed_founder.sql` inserts the first founder invite.
 | KPI snapshots | all | dept_lead only | none | none |
 | Delete | all | dept_lead in dept | none | none |
 
-## RLS building blocks (`0007`, `0008`, `0009`)
+## RLS building blocks (`0007`, `0009`, `0010`)
 `ops.my_role()`, `ops.is_founder()`, `ops.in_dept(dept)` (excludes partners), `ops.can_write()` (not viewer),
+`ops.is_internal()` (active non-partner), `ops.my_departments()` (founder = all six, partner = none),
 all `SECURITY DEFINER`, `STABLE`, `search_path = ''`. Pattern per department table: select = `in_dept`,
-insert/update = `in_dept AND can_write`, delete = `in_dept AND role in (founder, dept_lead)`. Add extra
-permissive policies for cross-department reads and partner-own rows (see `0008`).
+insert/update = `in_dept AND can_write`, delete = `in_dept AND role in (founder, dept_lead)`.
+**`0010` is the single source of truth for policies** (it drops and recreates all of them). Rules for new
+policies, all checked by `tools/test-access.mjs`:
+- exactly one permissive policy per table and action: put cross-department readers and partner-own rows
+  in the same expression with `OR` (Performance Advisor `multiple_permissive_policies`);
+- wrap `auth.uid()` and helper calls in a sub-select, e.g. `owner_id = (select auth.uid())`,
+  `(select ops.in_dept('sales'))`, `department = any ((select ops.my_departments())::ops.department[])`
+  (`auth_rls_initplan`: evaluated once per statement instead of per row);
+- every foreign key gets an index; every function pins `search_path`; finish each migration that adds
+  functions with `revoke execute on all functions in schema ops from public;` (Postgres grants PUBLIC
+  execute by default and per-schema default privileges cannot remove it).
 Service-role jobs bypass RLS; their RPCs (`assign_review_queue`, `raise_low_stock_tasks`, `request_part`)
 are revoked from `authenticated`.
 
@@ -77,7 +87,15 @@ are revoked from `authenticated`.
 Write `lib/permissions.ts` as a pure function `canAccess(me, area)` used by sidebar and route guards, with
 unit tests, and mirror (not replace) the RLS above.
 
-## To test (add to `tools/test-migrations.mjs`)
-claim with valid invite (staff row created, invite accepted); expired invite; no invite; already claimed;
-disabled staff; case-insensitive email; second claim idempotent; last-founder demote/delete blocked;
-non-founder cannot read/insert invites; partner cannot see inventory/other partners' deals.
+## Team admin RPCs (`0010`, founder only, used by `/team`)
+`invite_staff(email, role, departments, name)` (also re-invite/extend), `revoke_invite(id)`,
+`update_staff_access(staff, role, departments, is_active)`. They validate the role shape (partner: no
+departments; dept_lead/member/viewer: at least one) and return readable errors; RLS still applies.
+
+## Tests
+`tools/test-access.mjs` (run by `tools/test-migrations.mjs`): claim with valid invite (staff row created,
+invite accepted); expired invite; no invite; accepted invite cannot be claimed by another account;
+disabled staff (and `me()` null, sees no data); case-insensitive email; second claim idempotent; name from
+Google profile; last-founder demote/deactivate/delete blocked; non-founder cannot read/insert invites;
+founder-only RPCs; partner isolation across 15 tables and other partners' rows; advisor-equivalent checks.
+`e2e/phase0-gate.spec.ts`: the same flow through the real UI on a local Supabase stack.

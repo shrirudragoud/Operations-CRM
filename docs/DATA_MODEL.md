@@ -47,7 +47,8 @@ Use it for "related record" chips in the UI. `audit_log.table_name/row_id` likew
 
 ## Functions (callable surface)
 Read helpers: `my_role()`, `is_founder()`, `in_dept(d)`, `can_write()`, `me()`.
-User RPCs (authenticated): `claim_access()`, `reserve_kit(event, kit, qty)`, `issue_kit(event, kit, qty,
+User RPCs (authenticated): `claim_access()`, `me()`, `invite_staff(email, role, departments, name)`,
+`revoke_invite(id)`, `update_staff_access(staff, role, departments, is_active)` (founder only, 0010), `reserve_kit(event, kit, qty)`, `issue_kit(event, kit, qty,
 from, to)`, `close_event_returns(event, field_loc, back_loc, returns jsonb, note)`.
 Service jobs (service_role only): `assign_review_queue(day, quota)`, `raise_low_stock_tasks()`,
 `request_part(query, source)`.

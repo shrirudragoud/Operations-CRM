@@ -16,38 +16,31 @@ Internal operations CRM for Hard-Code. **Start with `CLAUDE.md` and `docs/HANDOF
 | `docs/PRODUCTION_STANDARDS.md` | Definition of Done and launch checklist |
 | `docs/DECISIONS.md` | Decisions and open questions |
 
+## Quick start (local, no hosted project needed)
+```
+npm install && (cd tools && npm install)
+npx supabase start -x studio,imgproxy,vector,logflare,edge-runtime,realtime,storage-api,postgres-meta,supavisor
+cp .env.example .env.local      # then paste the local URL + publishable key from `npx supabase status`
+npm run dev                     # http://localhost:3000, sign in as founder@hardcode.local (link in Mailpit :54324)
+```
+
+| Command | What |
+| --- | --- |
+| `npm run dev` / `build` / `start` | Next.js app |
+| `npm run lint` / `typecheck` / `test` | ESLint, TypeScript (strict), Vitest unit tests |
+| `npm run test:db` | Business rules + RLS + access + advisor checks in PGlite (178 checks) |
+| `npx playwright test` | Phase 0 gate end-to-end (needs the local Supabase stack + `npm run build`) |
+| `npm run gen:types` | Regenerate `lib/db.types.ts` from the migrations |
+| `npx supabase db advisors --level info` | Supabase Security + Performance Advisors against the local stack |
+
 ## Database
 
-Everything the ops CRM needs in Postgres: schema `ops`, 35 tables, 5 views, business rules
-(state machines, automations, inventory RPCs) and row-level security. No MCP required.
+Schema `ops`: 35 tables, 5 views, business rules (state machines, automations, inventory RPCs),
+row-level security and invite-only access, in `supabase/migrations/0001-0010`.
 
-## Apply it to your Supabase project (pick one)
-
-**A. SQL editor (easiest, no tools):**
-1. Supabase dashboard > SQL Editor > New query.
-2. Paste the contents of `supabase/all_migrations.sql` and Run. (If you prefer, run the eight
-   files in `supabase/migrations/` in order, 0001 to 0008.)
-3. Settings > Data API > **Exposed schemas**: add `ops`. Without this the app cannot see the tables.
-4. Run `supabase/seed_founder.sql` with your sign-in email (it creates a founder invite). The first
-   time you sign in, the app turns it into your founder account. Everyone else is invited from the
-   Team page. Without an invite, a signed-in user sees nothing.
-5. Security Advisor must show no new errors.
-
-**B. Supabase CLI:**
-```
-npm i -g supabase            # or: npx supabase ...
-supabase login
-supabase link --project-ref YOUR-PROJECT-REF
-supabase db push             # applies supabase/migrations/*
-```
-Then do steps 3 and 4 above.
-
-## Check the rules locally (no database needed)
-```
-cd tools && npm install && node test-migrations.mjs
-```
-Loads the migrations into an in-memory Postgres, stubs Supabase auth, and runs 85 checks:
-deal and event state machines, trainer double-booking, stock ledger, kit returns, RLS per role.
+## Apply it to the hosted ops project
+See `docs/HANDOFF.md` "Apply the database" for the exact, ordered steps (SQL editor or CLI). Never run
+these against the IDE product database (`Idea_labs_DB`).
 
 ## Rules enforced in the database
 - Institution stage only moves forward (founder can correct).
@@ -58,5 +51,7 @@ deal and event state machines, trainer double-booking, stock ledger, kit returns
   and a finished run sheet, then raises the post-event tasks.
 - Stock is a ledger: no negative balances per location, reservations cannot exceed warehouse stock,
   issue/return are paired movements, returns must add up to what was issued, losses need a note.
-- Partners see only the institutions, activities, deals and events they own.
+- Partners see only the institutions, activities, deals and events they own, and can open deals only at
+  their own institutions.
+- Access is invite-only; only the founder manages the team; the last active founder cannot be removed.
 - Jobs (`assign_review_queue`, `raise_low_stock_tasks`, `request_part`) are service-role only.

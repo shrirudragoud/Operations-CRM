@@ -61,8 +61,18 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | `request_part(query, source)` dedupes by normalised query and counts requests | function (service job) |
 | Feedback with no owner department is routed by source | `route_feedback` |
 
-## Access
-See `ACCESS_MODEL.md` (`claim_access`, last-founder protection, invite rules).
+## Access and team admin (0009, 0010)
+| Rule | Enforced by | Error |
+| --- | --- | --- |
+| Sign-in grants nothing; an open, unexpired invite for the verified email becomes a staff row on first `claim_access()` | `claim_access` | n/a (returns `no_invite`) |
+| Last active founder cannot be demoted, deactivated or deleted | `guard_last_founder` | "There must be at least one active founder" |
+| Only the founder invites, revokes, or changes role/departments/active | `invite_staff`, `revoke_invite`, `update_staff_access` + RLS | "Only the founder can ..." |
+| Partners have no departments; dept_lead/member/viewer need at least one | check constraints + `check_access_shape` | "Partners cannot belong to departments..." / "Choose at least one department..." |
+| Cannot invite someone already on the team (deactivated -> reactivate instead) | `invite_staff` | "... is already on the team" / "... reactivate them ..." |
+| Re-inviting an open invite refreshes role, departments and the 30-day expiry (one open invite per email) | `invite_staff` + unique index | n/a |
+| Accepted invites cannot be revoked | `revoke_invite` | "Invite not found or already accepted" |
+| A partner may open deals only at institutions they own | RLS `deal_ins` / `deal_upd` | permission error |
+See `ACCESS_MODEL.md` for the full matrix.
 
 ## Not yet implemented (decide with the founder, then add as new migrations + tests)
 - **Event `in_progress`:** manual button vs cron at `starts_at`.

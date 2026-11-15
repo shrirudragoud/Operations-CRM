@@ -22,9 +22,11 @@ in India). One Supabase database, one Next.js app, six department workspaces on 
 
 ## Commands
 ```
-cd tools && npm install && node test-migrations.mjs    # database rules + RLS (must pass)
-# app (once scaffolded)
-npm run dev | lint | typecheck | test | build
+cd tools && npm install && cd .. && npm run test:db     # database rules + RLS + access + advisor checks (must pass)
+npm run dev | lint | typecheck | test | build           # app (Next 16: read node_modules/next/dist/docs, see AGENTS.md)
+npm run gen:types                                       # after any migration change (CI checks freshness)
+npx supabase start ... && npx playwright test           # e2e on a local stack (e2e/README.md)
+npx supabase db advisors --level info                   # Security + Performance Advisors (local)
 ```
 
 ## Conventions
@@ -32,4 +34,7 @@ npm run dev | lint | typecheck | test | build
 - Server Components read; Server Actions / RPC mutate. No service key in the browser.
 - UI: shadcn/ui (new-york style, Tailwind v4) in `components/ui`. Forms: React Hook Form + Zod.
 - Money is INR `numeric(12,2)`. Timestamps are `timestamptz`; display in Asia/Kolkata.
+- Access in the UI: `lib/permissions.ts#canAccess` (mirrors RLS); pages `requireArea()`, actions `actionCaller()`.
+- New RLS policies: one per table+action, wrap `auth.uid()`/helpers in `(select ...)`, index every FK,
+  end migrations with `revoke execute on all functions in schema ops from public;` (tests enforce all four).
 - Commit style: imperative subject, body explains why. Small PRs per workspace.

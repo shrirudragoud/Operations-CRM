@@ -23,7 +23,7 @@ path by which external data enters `ops`.
 | Auth | Supabase Auth: Google OAuth + email magic link, invite-only (`ACCESS_MODEL.md`) |
 | Jobs | Edge Functions (Deno) on `pg_cron` schedules |
 | Hosting | Vercel (app) + Supabase (data), region close to ap-south-1 |
-| Types | `supabase gen types typescript --project-id <ref> --schema ops > lib/db.types.ts` |
+| Types | `npm run gen:types` (from the migrations, via PGlite; CI checks it is fresh) or `supabase gen types typescript --project-id <ref> --schema ops > lib/db.types.ts` (same format) |
 
 ## Repo layout (target)
 ```
@@ -37,8 +37,9 @@ app/
 components/ui/                # shadcn
 components/{app-sidebar,data-table,...}
 lib/{db.types.ts,permissions.ts,actions/,schemas/,format.ts}
-utils/supabase/{server,client,middleware}.ts
-middleware.ts
+utils/supabase/{server,client,proxy}.ts
+proxy.ts                      # Next 16 name for middleware.ts (same behaviour)
+e2e/                          # Playwright, against a local Supabase stack
 supabase/{migrations,functions,seed_founder.sql,config.toml}
 tools/test-migrations.mjs
 docs/
@@ -46,7 +47,9 @@ docs/
 
 ## Supabase client helpers (corrected from the Supabase quickstart)
 Use the `@supabase/ssr` helpers from the Supabase docs, with these fixes:
-1. **Refresh the session in middleware.** After building the server client call
+Next.js 16 renamed `middleware.ts` to `proxy.ts` (export `proxy`); the rules below apply to it unchanged.
+Implemented in `utils/supabase/proxy.ts` + `proxy.ts`.
+1. **Refresh the session in middleware (proxy).** After building the server client call
    `const { data: { user } } = await supabase.auth.getUser()`; if no user and path is not public,
    redirect to `/login`. Return the response that carries refreshed cookies. (The quickstart snippet
    never calls `getUser()`, so sessions would not refresh.)
@@ -55,6 +58,12 @@ Use the `@supabase/ssr` helpers from the Supabase docs, with these fixes:
 3. Always `supabase.schema('ops')`; add `ops` to **Exposed schemas** in Data API settings.
 4. Use `getUser()` (validates the JWT) for authorization decisions on the server, not `getSession()`.
 5. Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` reach the browser.
+
+## Rendering
+Every page is per-user and RLS-scoped, so pages render dynamically: `cacheComponents` is off (D13).
+`lib/auth.ts#getMe` (React `cache`) calls `ops.me()` once per request; the `(app)` layout redirects to
+`/no-access` when it is null; pages call `requireArea(area)` and render `AccessDenied` when
+`lib/permissions.ts#canAccess` says no; Server Actions call `actionCaller(area)` again.
 
 ## Data access rules
 - **Reads:** Server Components with the user's client (RLS applies). Use `select` with explicit columns and
@@ -69,7 +78,7 @@ Use the `@supabase/ssr` helpers from the Supabase docs, with these fixes:
 ## Environments and migrations
 | Env | Supabase | Purpose |
 | --- | --- | --- |
-| local | `supabase start` (optional) or PGlite tests | dev + `tools/test-migrations.mjs` |
+| local | `npx supabase start` (config in `supabase/config.toml`, demo seed in `supabase/seed.sql`) + PGlite tests | dev, `tools/test-migrations.mjs`, Playwright e2e, `supabase db advisors` |
 | staging | Supabase **branch** or second project | apply every migration here first |
 | prod | main ops project | after staging + Security Advisor clean |
 Migrations are forward-only files; apply with `supabase db push` or the SQL editor in order. Never edit an
