@@ -4,6 +4,7 @@ Internal operations CRM for Hard-Code. **Start with `CLAUDE.md` and `docs/HANDOF
 
 | Doc | What |
 | --- | --- |
+| `docs/LOCAL_AGENT_HANDOFF.md` | **New agent/engineer: run it, understand it, continue it** |
 | `docs/HANDOFF.md` | State, first steps, known gaps |
 | `docs/PRODUCT_OVERVIEW.md` | Purpose, departments, lifecycle |
 | `docs/DEPARTMENTS.md` | Work types, screens, KPIs per department |

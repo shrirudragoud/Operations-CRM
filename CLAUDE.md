@@ -3,6 +3,7 @@
 Internal operations CRM for Hard-Code (hard-code.in, an AI hardware IDE sold to schools and colleges
 in India). One Supabase database, one Next.js app, six department workspaces on a shared core.
 
+**Taking over on a local machine? Start with `docs/LOCAL_AGENT_HANDOFF.md`** (run it, understand it, continue it).
 **Read first, in order:** `docs/HANDOFF.md` (state + next steps) -> `docs/PRODUCT_OVERVIEW.md` ->
 `docs/BUILD_PLAN.md`. Everything else is reference.
 

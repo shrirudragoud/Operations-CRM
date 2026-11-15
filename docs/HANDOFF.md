@@ -1,6 +1,6 @@
 # Handoff
 
-Last updated: 15 Nov 2026 (session 2). Owner/founder: Shri (Hard-Code / Idea-Labs).
+Last updated: 15 Nov 2026 (session 2). **Taking over locally? Read `docs/LOCAL_AGENT_HANDOFF.md` first.** Owner/founder: Shri (Hard-Code / Idea-Labs).
 
 ## What exists
 | Area | State |
