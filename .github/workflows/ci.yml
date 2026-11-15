@@ -1,0 +1,20 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  db-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Database rules + RLS tests (PGlite)
+        working-directory: tools
+        run: npm install && node test-migrations.mjs
+      - name: Combined SQL is up to date
+        run: |
+          cat supabase/migrations/*.sql | diff -q - supabase/all_migrations.sql
+  # Add when the app exists: lint, typecheck, unit tests, next build, Playwright e2e, secret scan, npm audit.

@@ -1,6 +1,24 @@
-# Hard-Code Ops: database
+# Hard-Code Ops CRM
 
-Everything the ops CRM needs in Postgres: schema `ops`, 34 tables, 3 views, business rules
+Internal operations CRM for Hard-Code. **Start with `CLAUDE.md` and `docs/HANDOFF.md`.**
+
+| Doc | What |
+| --- | --- |
+| `docs/HANDOFF.md` | State, first steps, known gaps |
+| `docs/PRODUCT_OVERVIEW.md` | Purpose, departments, lifecycle |
+| `docs/DEPARTMENTS.md` | Work types, screens, KPIs per department |
+| `docs/DATA_MODEL.md` | Tables, views, functions |
+| `docs/BUSINESS_RULES.md` | Every rule, where enforced, what is missing |
+| `docs/ACCESS_MODEL.md` | Login, invites, roles, permission matrix |
+| `docs/ARCHITECTURE.md` | Stack, layout, client setup, environments |
+| `docs/INTEGRATIONS.md` | PostHog, IDE sync, jobs, cohort code |
+| `docs/BUILD_PLAN.md` | Phases, tasks, acceptance, shadcn setup |
+| `docs/PRODUCTION_STANDARDS.md` | Definition of Done and launch checklist |
+| `docs/DECISIONS.md` | Decisions and open questions |
+
+## Database
+
+Everything the ops CRM needs in Postgres: schema `ops`, 35 tables, 5 views, business rules
 (state machines, automations, inventory RPCs) and row-level security. No MCP required.
 
 ## Apply it to your Supabase project (pick one)
@@ -28,7 +46,7 @@ Then do steps 3 and 4 above.
 ```
 cd tools && npm install && node test-migrations.mjs
 ```
-Loads the migrations into an in-memory Postgres, stubs Supabase auth, and runs 84 checks:
+Loads the migrations into an in-memory Postgres, stubs Supabase auth, and runs 85 checks:
 deal and event state machines, trainer double-booking, stock ledger, kit returns, RLS per role.
 
 ## Rules enforced in the database
