@@ -292,6 +292,8 @@ export type Database = {
           won_at: string | null
           created_at: string
           updated_at: string
+          archived_at: string | null
+          archived_by: string | null
         }
         Insert: {
           id?: string
@@ -307,6 +309,8 @@ export type Database = {
           won_at?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Update: {
           id?: string
@@ -322,8 +326,17 @@ export type Database = {
           won_at?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "deal_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "deal_institution_id_fkey"
             columns: ["institution_id"]
@@ -455,6 +468,8 @@ export type Database = {
           returns_closed_at: string | null
           created_at: string
           updated_at: string
+          archived_at: string | null
+          archived_by: string | null
         }
         Insert: {
           id?: string
@@ -473,6 +488,8 @@ export type Database = {
           returns_closed_at?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Update: {
           id?: string
@@ -491,8 +508,17 @@ export type Database = {
           returns_closed_at?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "event_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "event_deal_id_fkey"
             columns: ["deal_id"]
@@ -756,6 +782,8 @@ export type Database = {
           notes: string | null
           created_at: string
           updated_at: string
+          archived_at: string | null
+          archived_by: string | null
         }
         Insert: {
           id?: string
@@ -771,6 +799,8 @@ export type Database = {
           notes?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Update: {
           id?: string
@@ -786,8 +816,17 @@ export type Database = {
           notes?: string | null
           created_at?: string
           updated_at?: string
+          archived_at?: string | null
+          archived_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "institution_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "institution_owner_id_fkey"
             columns: ["owner_id"]
@@ -1657,15 +1696,6 @@ export type Database = {
           p_invite: string
         }
         Returns: undefined
-      }
-      trainer_conflict: {
-        Args: {
-          p_staff: string
-          p_from: string
-          p_to: string
-          p_exclude: string
-        }
-        Returns: boolean
       }
       update_staff_access: {
         Args: {

@@ -227,4 +227,10 @@ export default async function accessTests(t) {
     select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'ops' and p.proname in ('assign_review_queue','raise_low_stock_tasks','request_part')
       and has_function_privilege('authenticated', p.oid, 'execute')`);
+
+  console.log('\nTrainer availability is private (0012)');
+  await expectErr('a signed-in user cannot call trainer_conflict directly', S,
+    `select ops.trainer_conflict('${W}', now(), now() + interval '1 day', null)`, 'permission denied');
+  await expectErr('a partner cannot probe trainer bookings either', P,
+    `select ops.trainer_conflict('${W}', now(), now() + interval '1 day', null)`, 'permission denied');
 }

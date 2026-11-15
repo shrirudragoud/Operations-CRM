@@ -6,10 +6,10 @@ Last updated: 15 Nov 2026 (session 2). Owner/founder: Shri (Hard-Code / Idea-Lab
 | Area | State |
 | --- | --- |
 | Product plan, department work types, data model | Written (this `docs/` folder) |
-| Database: 35 tables, 5 views, business rules, RLS, invite-only access | **Written and tested** (`supabase/migrations/0001-0010`). 178 PGlite checks (`npm run test:db`); also applied cleanly to a local Supabase stack (Postgres 17) |
+| Database: 35 tables, 5 views, business rules, RLS, invite-only access | **Written and tested** (`supabase/migrations/0001-0012`). 197 PGlite checks (`npm run test:db`); also applied cleanly to a local Supabase stack (Postgres 17) |
 | `0010_hardening_team.sql` | Fixes every Advisor finding on 0001-0009 (below); founder-only team RPCs; partner deal/department rules |
 | Supabase Advisors | Run locally with `supabase db advisors`: **0001-0009: 37 WARN + 38 INFO. After 0010: 0 ERROR, 0 WARN**, only INFO `unused_index` (expected on an empty DB) |
-| Applied to the hosted ops project (`qngzrzymakuqfljdotwi`, Tokyo) | **YES, migrations 0001-0010** (15 Nov 2026, via `supabase db query --remote -f`, because this sandbox cannot open a direct Postgres connection for `db push`). Verified: 35 tables, 5 views, 130 policies, 0 tables without RLS, 60 run-sheet rows. Advisors on hosted: 0 ERROR; 0 WARN for `ops`; 2 WARN for `public.rls_auto_enable()` (Supabase's own `ensure_rls` event trigger, not ours, left alone); 48 INFO unused indexes. **Still to do:** expose `ops` in Data API settings, auth settings + SMTP, founder invite |
+| Applied to the hosted ops project (`qngzrzymakuqfljdotwi`, Tokyo) | **YES, migrations 0001-0012** (via `supabase db query --remote -f`; this sandbox cannot open a direct Postgres connection for `db push`). `ops` is **exposed** in the Data API. Founder invite for the founder email exists. Hosted Advisors: 0 ERROR; 10 WARN, all accepted (see Known gaps); 0 tables without RLS |
 | Next.js app | **Phase 0 built.** Next 16 (App Router, `proxy.ts`), TypeScript strict, Tailwind v4, shadcn/ui (`radix-vega`), Supabase SSR clients |
 | Phase 0 screens | `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/auth/signout`, `/no-access` (not invited vs deactivated), app shell (role-aware sidebar, Ctrl+K workspace jump, user menu, theme, toasts), **My work** (open tasks), **Team** (invite, edit role/departments, deactivate/reactivate, extend/revoke invites), guarded placeholders for every later workspace |
 | Phase 0 gate | **Passed on a local Supabase stack** (`e2e/phase0-gate.spec.ts`, 7 Playwright tests): founder claims invite, invites member + partner, each sees only their matrix, uninvited -> `/no-access`, last founder protected, deactivation is immediate. Not yet run on the hosted project |
@@ -95,6 +95,13 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 - The Next 16 package ships its own docs in `node_modules/next/dist/docs/` (see `AGENTS.md`); read them, APIs changed.
 
 ## Known gaps and honest caveats
+- **Accepted Advisor warnings (hosted, `ops` exposed):** `authenticated_security_definer_function_executable` for
+  `in_dept`, `can_write`, `is_founder`, `is_internal`, `my_role`, `my_departments`, `me`, `claim_access`. These are
+  RLS helpers/RPCs that signed-in users must be able to call; each only reports on the caller. Anon cannot call
+  them. Moving them to an unexposed schema is the Supabase-recommended alternative (large policy rewrite; do it
+  in Phase 5 if wanted). `public.rls_auto_enable()` is Supabase's own `ensure_rls` trigger. NOTE: the local
+  `supabase db advisors` did not report these until `ops` was exposed on the hosted project, so a clean local
+  run does not prove a clean hosted run; check hosted after every migration (`--remote`).
 - Hosted project is migrated and Advisor-checked, but `ops` is **not yet exposed** in Data API settings, auth
   providers/redirect URLs/SMTP are not configured, and the migration history table is empty (see step 2).
   The e2e gate has not been run against it. Never run `supabase config push` from this repo: `config.toml`

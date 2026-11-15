@@ -61,6 +61,15 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | `request_part(query, source)` dedupes by normalised query and counts requests | function (service job) |
 | Feedback with no owner department is routed by source | `route_feedback` |
 
+## Archive (0011)
+| Rule | Enforced by | Error |
+| --- | --- | --- |
+| Institutions, deals and events are archived (`archived_at`, `archived_by`), not deleted; restore clears them | columns + `guard_archive` | n/a |
+| Only founder or dept_lead can archive/restore (partners and members cannot) | `guard_archive` | "Only a founder or department lead can archive or restore records" |
+| Institution: no open deals, no scheduled/in-progress events | `guard_archive` | "Close or archive the institution's open deals first" / "Cancel or complete ..." |
+| Deal must be won or lost; event must not be scheduled/in progress | `guard_archive` | "Mark the deal won or lost ..." / "Cancel or complete the event ..." |
+Screens hide archived rows by default (`archived_at is null`). 0012: `trainer_conflict` is no longer callable by users.
+
 ## Access and team admin (0009, 0010)
 | Rule | Enforced by | Error |
 | --- | --- | --- |
