@@ -11,19 +11,25 @@ const ok = (name) => { pass++; console.log('  ok   ' + name); };
 const bad = (name, why) => { fail++; console.log('  FAIL ' + name + '\n       ' + why); };
 const msg = (e) => (e?.message ?? String(e)).split('\n')[0];
 
-// run SQL as a given user (authenticated role + jwt sub); uid=null => superuser/service
-async function run(uid, sql) {
+// run SQL as a given user (authenticated role + jwt sub); uid=null => superuser/service.
+// claims: extra JWT claims (email, user_metadata) returned by the auth.jwt() stub.
+async function run(uid, sql, claims = {}) {
   if (uid) {
-    await db.exec(`select set_config('request.jwt.claim.sub','${uid}',false); set role authenticated;`);
+    const jwt = JSON.stringify({ sub: uid, role: 'authenticated', ...claims }).replace(/'/g, "''");
+    await db.exec(`select set_config('request.jwt.claim.sub','${uid}',false);
+                   select set_config('request.jwt.claims','${jwt}',false); set role authenticated;`);
   }
   try { return await db.query(sql); }
-  finally { await db.exec(`reset role; select set_config('request.jwt.claim.sub','',false);`); }
+  finally {
+    await db.exec(`reset role; select set_config('request.jwt.claim.sub','',false);
+                   select set_config('request.jwt.claims','',false);`);
+  }
 }
-async function expectOk(name, uid, sql) {
-  try { const r = await run(uid, sql); ok(name); return r; } catch (e) { bad(name, msg(e)); }
+async function expectOk(name, uid, sql, claims) {
+  try { const r = await run(uid, sql, claims); ok(name); return r; } catch (e) { bad(name, msg(e)); }
 }
-async function expectErr(name, uid, sql, part) {
-  try { await run(uid, sql); bad(name, 'expected an error but it succeeded'); }
+async function expectErr(name, uid, sql, part, claims) {
+  try { await run(uid, sql, claims); bad(name, 'expected an error but it succeeded'); }
   catch (e) { msg(e).toLowerCase().includes(part.toLowerCase()) ? ok(name) : bad(name, `wrong error: ${msg(e)}`); }
 }
 async function val(sql) { const r = await db.query(sql); return r.rows[0] ? Object.values(r.rows[0])[0] : null; }
@@ -39,8 +45,10 @@ await db.exec(`
   create table auth.users (id uuid primary key);
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+  create function auth.jwt() returns jsonb language sql stable as
+    $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
   grant usage on schema auth to authenticated, service_role;
-  grant execute on function auth.uid() to authenticated, service_role;
+  grant execute on function auth.uid(), auth.jwt() to authenticated, service_role;
   grant select on auth.users to authenticated;
 `);
 
@@ -66,7 +74,7 @@ await db.exec(`
    ('${S}','Sales','s@x.in','member','{sales}'),
    ('${W}','Workshop Lead','w@x.in','dept_lead','{workshop,training}'),
    ('${T2}','Trainer Two','t2@x.in','member','{workshop,training}'),
-   ('${P}','Partner','p@x.in','partner','{sales}'),
+   ('${P}','Partner','p@x.in','partner','{}'),
    ('${V}','Viewer','v@x.in','viewer','{sales}'),
    ('${O}','Outreach','o@x.in','member','{outreach}');
 `);
@@ -237,6 +245,8 @@ await expectErr('viewer cannot write', V, `insert into ops.deal(institution_id,k
 }
 await expectErr('member cannot call service-only job', S, `select ops.assign_review_queue()`, 'permission denied');
 await eq('a signed-in user with no staff row sees nothing', '99999999-0000-0000-0000-000000000009', 'institution', 0);
+
+await import('./test-access.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
