@@ -9,7 +9,7 @@ Last updated: 15 Nov 2026 (session 2). Owner/founder: Shri (Hard-Code / Idea-Lab
 | Database: 35 tables, 5 views, business rules, RLS, invite-only access | **Written and tested** (`supabase/migrations/0001-0010`). 178 PGlite checks (`npm run test:db`); also applied cleanly to a local Supabase stack (Postgres 17) |
 | `0010_hardening_team.sql` | Fixes every Advisor finding on 0001-0009 (below); founder-only team RPCs; partner deal/department rules |
 | Supabase Advisors | Run locally with `supabase db advisors`: **0001-0009: 37 WARN + 38 INFO. After 0010: 0 ERROR, 0 WARN**, only INFO `unused_index` (expected on an empty DB) |
-| Applied to the hosted ops project (`qngzrzymakuqfljdotwi`) | **NO.** This session had no Supabase connector or project credentials. Steps below; waiting for the founder to run them |
+| Applied to the hosted ops project (`qngzrzymakuqfljdotwi`, Tokyo) | **YES, migrations 0001-0010** (15 Nov 2026, via `supabase db query --remote -f`, because this sandbox cannot open a direct Postgres connection for `db push`). Verified: 35 tables, 5 views, 130 policies, 0 tables without RLS, 60 run-sheet rows. Advisors on hosted: 0 ERROR; 0 WARN for `ops`; 2 WARN for `public.rls_auto_enable()` (Supabase's own `ensure_rls` event trigger, not ours, left alone); 48 INFO unused indexes. **Still to do:** expose `ops` in Data API settings, auth settings + SMTP, founder invite |
 | Next.js app | **Phase 0 built.** Next 16 (App Router, `proxy.ts`), TypeScript strict, Tailwind v4, shadcn/ui (`radix-vega`), Supabase SSR clients |
 | Phase 0 screens | `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/auth/signout`, `/no-access` (not invited vs deactivated), app shell (role-aware sidebar, Ctrl+K workspace jump, user menu, theme, toasts), **My work** (open tasks), **Team** (invite, edit role/departments, deactivate/reactivate, extend/revoke invites), guarded placeholders for every later workspace |
 | Phase 0 gate | **Passed on a local Supabase stack** (`e2e/phase0-gate.spec.ts`, 7 Playwright tests): founder claims invite, invites member + partner, each sees only their matrix, uninvited -> `/no-access`, last founder protected, deactivation is immediate. Not yet run on the hosted project |
@@ -31,6 +31,9 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
    ```bash
    npx supabase db push
    ```
+   **Already done for 0001-0010 (see "What exists").** Because it was applied through the SQL API, the CLI's
+   migration history table is empty: run `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010`
+   from a machine that can reach Postgres before the next `db push`, or `db push` will try to re-apply them.
    Alternative: Dashboard -> SQL Editor -> paste `supabase/all_migrations.sql` -> Run. If you use the editor,
    afterwards run `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010`
    so the CLI knows they are applied.
@@ -75,8 +78,10 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 - The Next 16 package ships its own docs in `node_modules/next/dist/docs/` (see `AGENTS.md`); read them, APIs changed.
 
 ## Known gaps and honest caveats
-- **Hosted project not applied/verified** (above). Advisor results so far are from the local stack running the
-  same Supabase Postgres image and the CLI's advisor checks.
+- Hosted project is migrated and Advisor-checked, but `ops` is **not yet exposed** in Data API settings, auth
+  providers/redirect URLs/SMTP are not configured, and the migration history table is empty (see step 2).
+  The e2e gate has not been run against it. Never run `supabase config push` from this repo: `config.toml`
+  holds local-only values (localhost URLs, relaxed email rate limit) that would overwrite hosted auth settings.
 - Google OAuth is untested end to end (needs real Google credentials); it shares `/auth/callback` and
   `claim_access()` with the magic link, which the e2e covers.
 - CSP allows `'unsafe-inline'` scripts/styles (Next runtime); move to nonces in Phase 5.
