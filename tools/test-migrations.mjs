@@ -1,10 +1,11 @@
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'supabase', 'migrations');
-const db = new PGlite();
+const db = new PGlite({ extensions: { pg_trgm } });
 let pass = 0, fail = 0;
 
 const ok = (name) => { pass++; console.log('  ok   ' + name); };
@@ -42,6 +43,7 @@ async function expectVal(name, sql, want) {
 await db.exec(`
   create role anon nologin; create role authenticated nologin; create role service_role nologin;
   create schema auth;
+  create schema extensions; -- exists on every Supabase project
   create table auth.users (id uuid primary key);
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -248,6 +250,7 @@ await eq('a signed-in user with no staff row sees nothing', '99999999-0000-0000-
 
 await import('./test-access.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst }));
 await import('./test-archive.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst, ev, ev2 }));
+await import('./test-core.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O, ev, ev2 }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

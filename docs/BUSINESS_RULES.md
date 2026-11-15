@@ -70,6 +70,15 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | Deal must be won or lost; event must not be scheduled/in progress | `guard_archive` | "Mark the deal won or lost ..." / "Cancel or complete the event ..." |
 Screens hide archived rows by default (`archived_at is null`). 0012: `trainer_conflict` is no longer callable by users.
 
+## Core completion (0013)
+| Rule | Enforced by | Error |
+| --- | --- | --- |
+| `available_trainers(from, to, exclude_event)` lists certified (or founder) active staff with `is_free`; Workshop (and founder) only; `exclude_event` stops a re-scheduled event blocking itself | definer RPC | "Only Workshop can look up trainer availability" / "Choose a valid start and end" |
+| `import_institutions(rows, dry_run)`: validates every row (name, kind, case-insensitive duplicates in file and database, owner email); any error or dry run writes nothing; max 2000 rows; partners' rows are always owned by themselves; viewers and non-Outreach/Sales cannot import | invoker RPC (RLS applies) | "row N: Already exists" etc. in the returned `errors` list; "You do not have permission to import institutions" |
+| `job_run`: founder-readable log; only the service role writes | RLS | n/a |
+| `forget_ide_user(ide_user_id, email)`: deletes the IDE snapshot and daily usage, anonymises replay rows, unlinks feedback; founder/service only; audit entry holds counts only | definer RPC | "Only the founder can erase a user's data" |
+| Trigram indexes on institution name and city for fast search (`ilike '%x%'`) | indexes | n/a |
+
 ## Access and team admin (0009, 0010)
 | Rule | Enforced by | Error |
 | --- | --- | --- |

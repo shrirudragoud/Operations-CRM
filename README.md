@@ -29,14 +29,14 @@ npm run dev                     # http://localhost:3000, sign in as founder@hard
 | --- | --- |
 | `npm run dev` / `build` / `start` | Next.js app |
 | `npm run lint` / `typecheck` / `test` | ESLint, TypeScript (strict), Vitest unit tests |
-| `npm run test:db` | Business rules + RLS + access + advisor checks in PGlite (178 checks) |
+| `npm run test:db` | Business rules + RLS + access + advisor checks in PGlite (243 checks) |
 | `npx playwright test` | Phase 0 gate end-to-end (needs the local Supabase stack + `npm run build`) |
 | `npm run gen:types` | Regenerate `lib/db.types.ts` from the migrations |
 | `npx supabase db advisors --level info` | Supabase Security + Performance Advisors against the local stack |
 
 ## Database
 
-Schema `ops`: 35 tables, 5 views, business rules (state machines, automations, inventory RPCs),
+Schema `ops`: 36 tables, 5 views, business rules (state machines, automations, inventory RPCs),
 row-level security and invite-only access, in `supabase/migrations/0001-0010`.
 
 ## Apply it to the hosted ops project

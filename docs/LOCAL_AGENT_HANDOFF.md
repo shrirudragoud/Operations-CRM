@@ -16,7 +16,7 @@ Needs Node 22+. Docker is only needed for the local Supabase stack (1.4).
 
 ### 1.2 Prove the database rules (no Docker, no network)
 ```bash
-npm run test:db       # expect: 197 passed, 0 failed
+npm run test:db       # expect: 243 passed, 0 failed
 npm run lint && npm run typecheck && npm test    # expect clean, 32 unit tests
 ```
 If `test:db` fails, stop: the database layer is the foundation and nothing else is trustworthy.
@@ -72,7 +72,7 @@ The tests reset data, so `playwright.config.ts` builds a separate copy (`NEXT_DI
 | 10 | `docs/INTEGRATIONS.md` | PostHog / IDE sync / jobs (Phase 2+) |
 
 ### The mental model in ten lines
-1. One Supabase Postgres, schema `ops` (35 tables, 5 views). Migrations `supabase/migrations/0001-0012`.
+1. One Supabase Postgres, schema `ops` (36 tables, 5 views). Migrations `supabase/migrations/0001-0013`.
 2. **Rules live in the database** (triggers, RPCs, RLS). The UI calls them and shows their error text.
 3. **Invite-only**: signing in grants nothing. `ops.claim_access()` turns an invite into a `staff` row.
 4. Roles: `founder`, `dept_lead`, `member`, `viewer`, `partner`; departments: outreach, sales, workshop,
@@ -87,10 +87,10 @@ The tests reset data, so `playwright.config.ts` builds a separate copy (`NEXT_DI
 
 ### Code map
 ```
-supabase/migrations/        0001-0012 (never edit an applied file; add 0013+)
+supabase/migrations/        0001-0013 (never edit an applied file; add 0013+)
 supabase/config.toml, seed.sql   local stack only (seed.sql = local demo founder invite)
 supabase/seed_founder.sql   one-time hosted founder invite (already run)
-tools/test-migrations.mjs   PGlite suite entry; test-access.mjs, test-archive.mjs are called from it
+tools/test-migrations.mjs   PGlite suite entry; test-access.mjs, test-archive.mjs, test-core.mjs are called from it
 tools/gen-types.mjs         generates lib/db.types.ts from migrations (CI checks it is fresh)
 lib/permissions.ts          roles, areas, canAccess (unit-tested)      lib/nav.ts   sidebar items per role
 lib/auth.ts                 getMe (ops.me()), requireMe/requireArea/actionCaller
@@ -128,13 +128,13 @@ e2e/                        Playwright (local stack only)       scripts/serve.sh
 ### Hosted project status (verify, do not assume)
 ```bash
 npx supabase login && npx supabase link --project-ref qngzrzymakuqfljdotwi
-npx supabase db query --remote --read-only "select count(*) from pg_tables where schemaname='ops'"   # 35
+npx supabase db query --remote --read-only "select count(*) from pg_tables where schemaname='ops'"   # 36
 npx supabase db advisors --remote --level warn
 ```
-Migrations 0001-0012 were applied through the SQL API, so the CLI's migration history table is **empty**. Before
+Migrations 0001-0013 were applied through the SQL API, so the CLI's migration history table is **empty**. Before
 the first `db push` from a machine that can reach Postgres, run:
 ```bash
-npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012
+npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013
 ```
 then `npx supabase db push --dry-run` must report nothing to apply.
 
@@ -157,7 +157,7 @@ Founder decisions already made are D18-D22 in `docs/DECISIONS.md` (workshops are
 departments; archive not delete; no partner KPIs yet, ops tool first).
 
 ### 3.2 Phase 1, in this order (one workspace per PR; migration + tests + UI + docs together)
-Status: `0011_archive` done and applied. **No Phase 1 screen is built yet.**
+Status: database core is frozen and applied (`0011` archive, `0012`, `0013` trainer picker/CSV import/search/job log/DPDP erasure). **No Phase 1 screen is built yet.** Pending database work: `0014` automatic stages once the founder defines them.
 
 1. **Institutions + contacts + Institution 360** (start here; nothing blocks it)
    - List: server-side pagination (25-50/page), filters (stage, district, kind, owner, archived), search by
@@ -167,8 +167,9 @@ Status: `0011_archive` done and applied. **No Phase 1 screen is built yet.**
      only the founder can correct it, via a dedicated action).
    - Contacts on the 360 page. Archive/restore buttons only for founder/dept_lead (`canArchive` helper +
      the DB trigger errors shown inline).
-   - CSV import: dry run first (validate, show row errors, nothing written), then commit in a transaction/RPC;
-     dedupe on `(name, city)` (unique constraint exists).
+   - CSV import: parse the file in the browser/server (papaparse), call `import_institutions(rows, true)` for the
+     dry run and show its `errors` (row numbers + messages), then call it with `false` to commit (all or nothing).
+   - Search: `ilike` on name/city uses the trigram indexes (0013).
    - 360 page tabs: Overview, Contacts, Activities, Deals, Events, Notes (later tabs can be empty states that
      link to their workspace until those exist).
    - Acceptance: partner sees only own institutions (RLS) and cannot archive; a user without Outreach/Sales
@@ -179,8 +180,7 @@ Status: `0011_archive` done and applied. **No Phase 1 screen is built yet.**
 3. **Sales**: kanban (dnd-kit) over `deal.stage`, deal detail with lines, lost-reason dialog, founder-only
    **Mark won** (button hidden for others; DB enforces), forecast. Won creates one draft event + two tasks.
 4. **Workshop**: event calendar (FullCalendar), status stepper, trainer picker showing only certified and free
-   trainers (`v_certified_trainer`; `trainer_conflict` is now **not** callable by users (0012), so query
-   `event`/`event_staff` for availability or add a definer RPC that returns only the caller-safe answer),
+   trainers (`v_certified_trainer`; use the `available_trainers(from, to, exclude_event)` RPC (0013; `trainer_conflict` itself is not callable by users),
    run-sheet checklist, cohort code. 1/3/5-day events are just `starts_at`/`ends_at`; assistants via `event_staff`.
 5. **Inventory**: items, kits (BOM), locations, receive stock, reserve/issue/return dialogs (the returns form
    must balance returned + damaged + lost = issued per item and require a note for loss), low-stock panel.

@@ -3,16 +3,17 @@
 // `supabase gen types typescript --schema ops`, so either can overwrite the file.
 // Usage: node tools/gen-types.mjs [--check]   (--check fails if the committed file is stale; used in CI)
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'lib', 'db.types.ts');
-const db = new PGlite();
+const db = new PGlite({ extensions: { pg_trgm } });
 await db.exec(`
   create role anon nologin; create role authenticated nologin; create role service_role nologin;
-  create schema auth; create table auth.users (id uuid primary key);
+  create schema auth; create schema extensions; create table auth.users (id uuid primary key);
   create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
   create function auth.jwt() returns jsonb language sql stable as $$ select '{}'::jsonb $$;
 `);
@@ -57,12 +58,21 @@ const fks = await q(`
 const fns = await q(`
   select p.proname as name, p.proretset as setof, rt.typname as ret, rt.typtype as rettype,
          rtn.nspname as retschema, rt.typcategory as retcat, ret_elem.typname as retelem,
-         coalesce(p.proargnames, '{}') as argnames, p.pronargdefaults as ndef,
+         coalesce((select array_agg(a.n order by a.ord)
+                     from unnest(coalesce(p.proargnames, '{}'::text[]),
+                                      coalesce(p.proargmodes, array_fill('i'::"char", array[coalesce(cardinality(p.proargnames), 0)])))
+                          with ordinality as a(n, m, ord) where a.m in ('i','b','v')), '{}') as argnames,
+         p.pronargdefaults as ndef,
          array(select t.typname from unnest(p.proargtypes::oid[]) with ordinality x(oid, o)
                join pg_type t on t.oid = x.oid order by x.o) as argtypes,
          array(select coalesce(et.typname, '') from unnest(p.proargtypes::oid[]) with ordinality x(oid, o)
                join pg_type t on t.oid = x.oid left join pg_type et on et.oid = t.typelem and t.typcategory = 'A'
-               order by x.o) as argelems
+               order by x.o) as argelems,
+         case when p.proargmodes is not null then
+           (select jsonb_agg(jsonb_build_object('name', a.n, 'type', t.typname, 'elem', et.typname) order by a.ord)
+              from unnest(p.proargnames, p.proargmodes, p.proallargtypes) with ordinality as a(n, m, ty, ord)
+              join pg_type t on t.oid = a.ty left join pg_type et on et.oid = t.typelem and t.typcategory = 'A'
+             where a.m in ('t','o')) end as outs
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   join pg_type rt on rt.oid = p.prorettype join pg_namespace rtn on rtn.oid = rt.typnamespace
   left join pg_type ret_elem on ret_elem.oid = rt.typelem and rt.typcategory = 'A'
@@ -123,7 +133,10 @@ for (const f of fns) {
     return `          ${name}${optional ? '?' : ''}: ${tsType(t, f.argelems[i] || null)}`;
   });
   let ret;
-  if (f.retschema === 'ops' && tables.includes(f.ret)) ret = `Database["ops"]["Tables"]["${f.ret}"]["Row"]`;
+  if (f.outs) {
+    const fields = f.outs.map((o) => `${o.name}: ${tsType(o.type, o.elem)}`).join('; ');
+    ret = `{ ${fields} }`;
+  } else if (f.retschema === 'ops' && tables.includes(f.ret)) ret = `Database["ops"]["Tables"]["${f.ret}"]["Row"]`;
   else ret = tsType(f.ret, f.retelem);
   if (f.setof) ret = `${ret}[]`;
   s += `      ${f.name}: {\n        Args: ${n ? `{\n${args.join('\n')}\n        }` : 'never'}\n        Returns: ${ret}\n      }\n`;

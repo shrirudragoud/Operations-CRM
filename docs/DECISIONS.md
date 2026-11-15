@@ -27,6 +27,8 @@
 | D21 | Archive instead of hard delete for institutions, deals and events (founder) | Closes open question 11. Implemented as `archived_at` columns + RLS/UI filters in migration 0011 (Phase 1) |
 | D22 | No partner-specific KPIs yet; `kpi_target` stays unused until the partner contract defines metrics (founder) | Closes open question 10 for now. Priority is a solid operations tool first |
 
+| D23 | Database core frozen after `0013_core_complete` for the Phase 1 screens; automatic stages (`active`, `lab_customer`, `renewal`) wait for founder definitions and ship as `0014` | Screens can be built on a stable schema; the stage rules need business input. Proposal pending: `active` = at least 10 workshop students with a compile/flash in the last 14 days |
+
 ## Open questions for the founder (answer before the phase noted)
 1. **Which Supabase project is the ops DB?** The intended ops project is separate from the IDE product DB
    (`Idea_labs_DB`). Confirm, and decide copy-by-sync vs read-only views if they ever share a project. (Phase 0)

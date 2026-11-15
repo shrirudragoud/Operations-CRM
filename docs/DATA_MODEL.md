@@ -1,6 +1,6 @@
 # Data model (schema `ops`)
 
-35 tables, 5 views, enums `department`, `app_role`, `lifecycle_stage`. Source of truth:
+36 tables, 5 views, enums `department`, `app_role`, `lifecycle_stage`. Source of truth:
 `supabase/migrations/`. Keys are `uuid` (`gen_random_uuid()`), money `numeric(12,2)` INR, times `timestamptz`.
 
 ## Tables by group
@@ -48,7 +48,7 @@ Use it for "related record" chips in the UI. `audit_log.table_name/row_id` likew
 ## Functions (callable surface)
 Read helpers: `my_role()`, `is_founder()`, `in_dept(d)`, `can_write()`, `me()`.
 User RPCs (authenticated): `claim_access()`, `me()`, `invite_staff(email, role, departments, name)`,
-`revoke_invite(id)`, `update_staff_access(staff, role, departments, is_active)` (founder only, 0010), `reserve_kit(event, kit, qty)`, `issue_kit(event, kit, qty,
+`revoke_invite(id)`, `available_trainers(from, to, exclude_event)`, `import_institutions(rows jsonb, dry_run)`, `forget_ide_user(id, email)` (0013), `update_staff_access(staff, role, departments, is_active)` (founder only, 0010), `reserve_kit(event, kit, qty)`, `issue_kit(event, kit, qty,
 from, to)`, `close_event_returns(event, field_loc, back_loc, returns jsonb, note)`.
 Service jobs (service_role only): `assign_review_queue(day, quota)`, `raise_low_stock_tasks()`,
 `request_part(query, source)`.

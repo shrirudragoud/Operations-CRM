@@ -920,6 +920,39 @@ export type Database = {
         }
         Relationships: []
       }
+      job_run: {
+        Row: {
+          id: string
+          job: string
+          status: string
+          started_at: string
+          finished_at: string | null
+          rows_affected: number | null
+          error: string | null
+          details: Json
+        }
+        Insert: {
+          id?: string
+          job: string
+          status?: string
+          started_at?: string
+          finished_at?: string | null
+          rows_affected?: number | null
+          error?: string | null
+          details?: Json
+        }
+        Update: {
+          id?: string
+          job?: string
+          status?: string
+          started_at?: string
+          finished_at?: string | null
+          rows_affected?: number | null
+          error?: string | null
+          details?: Json
+        }
+        Relationships: []
+      }
       kit: {
         Row: {
           id: string
@@ -1613,6 +1646,14 @@ export type Database = {
       }
     }
     Functions: {
+      available_trainers: {
+        Args: {
+          p_from: string
+          p_to: string
+          p_exclude_event?: string
+        }
+        Returns: { staff_id: string; full_name: string; level: string; is_free: boolean }[]
+      }
       can_write: {
         Args: never
         Returns: boolean
@@ -1637,6 +1678,20 @@ export type Database = {
           p_note?: string
         }
         Returns: undefined
+      }
+      forget_ide_user: {
+        Args: {
+          p_ide_user_id?: string
+          p_email?: string
+        }
+        Returns: Json
+      }
+      import_institutions: {
+        Args: {
+          p_rows: Json
+          p_dry_run?: boolean
+        }
+        Returns: Json
       }
       in_dept: {
         Args: {
