@@ -53,6 +53,7 @@ async function latestLink(email: string): Promise<string> {
 export async function signInWithMagicLink(page: Page, email: string) {
   await clearMailbox(email);
   await page.goto("/login");
+  await page.getByRole("button", { name: "Email me a sign-in link instead" }).click();
   await page.getByLabel("Work email").fill(email);
   await page.getByRole("button", { name: "Email me a sign-in link" }).click();
   await expect(page.getByText(`We sent a sign-in link to`)).toBeVisible();

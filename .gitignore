@@ -26,3 +26,5 @@ playwright-report/
 *.zip
 .DS_Store
 npm-debug.log*
+.run/
+.next-e2e/

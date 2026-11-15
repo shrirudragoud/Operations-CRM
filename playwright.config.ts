@@ -5,6 +5,16 @@ import { defineConfig, devices } from "@playwright/test";
 // read from Mailpit. See e2e/README.md.
 const PORT = 3100;
 
+// The tests reset data, so they must NEVER talk to a hosted project. They build their own copy of the
+// app (separate dist dir) pointed at the local Supabase stack, ignoring whatever .env.local says.
+// Defaults are the public demo values every `supabase start` stack uses.
+const LOCAL_URL = process.env.E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
+const LOCAL_KEY = process.env.E2E_SUPABASE_PUBLISHABLE_KEY ?? "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(LOCAL_URL)) {
+  throw new Error(`E2E_SUPABASE_URL must be a local stack, got ${LOCAL_URL}`);
+}
+const env = `NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_SUPABASE_URL=${LOCAL_URL} NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${LOCAL_KEY}`;
+
 export default defineConfig({
   testDir: "e2e",
   fullyParallel: false,
@@ -19,9 +29,9 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `npx next start -p ${PORT}`,
+    command: `${env} npx next build && ${env} npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}/login`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    reuseExistingServer: false,
+    timeout: 180_000,
   },
 });

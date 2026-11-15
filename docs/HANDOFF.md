@@ -63,6 +63,23 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 9. Sign in at the app with your Google account -> you become founder -> run the Phase 0 gate by hand
    (invite a member + a partner from `/team`, sign in as each).
 
+## Running the app while building (session 2 setup)
+- `scripts/serve.sh start|stop|redeploy|status` keeps the production build on `:3000` against the **hosted** ops
+  project (`.env.local`, git-ignored) and restarts it on crash. Logs in `.run/app.log`. `redeploy` rebuilds.
+- Sign-in options: Google, email link (needs SMTP, not set up yet) and **email + password** (Supabase Auth, no
+  email service needed). Every method ends in `ops.claim_access()`, so an invite is still required.
+- **First founder login:** needs one Supabase Auth user for the founder email. Easiest: Dashboard ->
+  Authentication -> Users -> Add user -> Create new user (tick Auto Confirm User) with the founder email and a
+  password; then sign in on `/login`. `claim_access` turns the existing invite into the founder staff row.
+  Do not turn off email confirmation project-wide: `claim_access` trusts the JWT email, so unverified signups
+  could claim an invite.
+- A public URL is **not available from this sandbox** (it only has an HTTPS egress proxy: Cloudflare/ngrok/
+  localtunnel tunnels cannot connect). Port 3000 is registered as a preview port for the Claude app. For a real
+  URL deploy to Vercel (or any Node host) with the two `NEXT_PUBLIC_` variables, then add its
+  `/auth/callback` to Supabase Auth redirect URLs and set the Site URL.
+- E2E tests build their own copy against the local stack (`NEXT_DIST_DIR=.next-e2e`) and refuse non-local URLs,
+  so they can never reset the hosted project.
+
 ## Next steps (in order)
 1. Founder: steps above, plus answers to the open questions in `docs/DECISIONS.md` (3, 4, 7, 10, 11 block Phase 1; 2 decides the UI merge).
 2. Agent: once applied, confirm Advisors, run the gate on the hosted project, deploy to Vercel (security headers

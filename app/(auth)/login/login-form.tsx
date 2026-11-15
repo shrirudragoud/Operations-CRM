@@ -16,6 +16,12 @@ const emailSchema = z.object({
 });
 type EmailForm = z.input<typeof emailSchema>;
 
+const passwordSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email({ message: "Enter a valid email address." })),
+  password: z.string().min(1, "Enter your password."),
+});
+type PasswordForm = z.input<typeof passwordSchema>;
+
 function callbackUrl(next: string) {
   const url = new URL("/auth/callback", window.location.origin);
   if (next !== "/") url.searchParams.set("next", next);
@@ -26,7 +32,9 @@ export function LoginForm({ next }: { next: string }) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"password" | "link">("password");
   const form = useForm<EmailForm>({ resolver: zodResolver(emailSchema), defaultValues: { email: "" } });
+  const pwForm = useForm<PasswordForm>({ resolver: zodResolver(passwordSchema), defaultValues: { email: "", password: "" } });
 
   async function signInWithGoogle() {
     setError(null);
@@ -40,6 +48,24 @@ export function LoginForm({ next }: { next: string }) {
       setGoogleLoading(false);
       setError("Couldn't start Google sign-in. Try again or use an email link.");
     }
+  }
+
+  async function signInWithPassword(values: PasswordForm) {
+    setError(null);
+    const parsed = passwordSchema.parse(values);
+    const { error } = await createClient().auth.signInWithPassword(parsed);
+    if (error) {
+      setError(
+        error.status === 429
+          ? "Too many attempts. Wait a minute and try again."
+          : "Email or password is incorrect.",
+      );
+      return;
+    }
+    // Same access check as Google/magic link: invite -> staff row, or /no-access.
+    // Full navigation on purpose: /auth/claim is a route handler, not a page.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/auth/claim${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`);
   }
 
   async function sendLink(values: EmailForm) {
@@ -74,7 +100,8 @@ export function LoginForm({ next }: { next: string }) {
     );
   }
 
-  const sending = form.formState.isSubmitting;
+  const sending = form.formState.isSubmitting || pwForm.formState.isSubmitting;
+  const pwErrors = pwForm.formState.errors;
   return (
     <div className="space-y-4">
       <Button type="button" className="w-full" onClick={signInWithGoogle} disabled={googleLoading || sending}>
@@ -82,27 +109,49 @@ export function LoginForm({ next }: { next: string }) {
         Continue with Google
       </Button>
       <FieldSeparator>or</FieldSeparator>
-      <form onSubmit={form.handleSubmit(sendLink)} noValidate>
-        <FieldGroup>
-          <Field data-invalid={!!form.formState.errors.email}>
-            <FieldLabel htmlFor="email">Work email</FieldLabel>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              placeholder="you@hard-code.in"
-              aria-invalid={!!form.formState.errors.email}
-              {...form.register("email")}
-            />
-            <FieldError errors={[form.formState.errors.email]} />
-          </Field>
-          <Button type="submit" variant="outline" className="w-full" disabled={sending || googleLoading}>
-            {sending && <Spinner />}
-            Email me a sign-in link
+      {mode === "password" ? (
+        <form onSubmit={pwForm.handleSubmit(signInWithPassword)} noValidate>
+          <FieldGroup>
+            <Field data-invalid={!!pwErrors.email}>
+              <FieldLabel htmlFor="pw-email">Email</FieldLabel>
+              <Input id="pw-email" type="email" autoComplete="username" inputMode="email"
+                aria-invalid={!!pwErrors.email} {...pwForm.register("email")} />
+              <FieldError errors={[pwErrors.email]} />
+            </Field>
+            <Field data-invalid={!!pwErrors.password}>
+              <FieldLabel htmlFor="pw-password">Password</FieldLabel>
+              <Input id="pw-password" type="password" autoComplete="current-password"
+                aria-invalid={!!pwErrors.password} {...pwForm.register("password")} />
+              <FieldError errors={[pwErrors.password]} />
+            </Field>
+            <Button type="submit" variant="outline" className="w-full" disabled={sending || googleLoading}>
+              {sending && <Spinner />}
+              Sign in with password
+            </Button>
+          </FieldGroup>
+          <Button type="button" variant="link" size="sm" className="mt-2 w-full" onClick={() => setMode("link")}>
+            Email me a sign-in link instead
           </Button>
-        </FieldGroup>
-      </form>
+        </form>
+      ) : (
+        <form onSubmit={form.handleSubmit(sendLink)} noValidate>
+          <FieldGroup>
+            <Field data-invalid={!!form.formState.errors.email}>
+              <FieldLabel htmlFor="email">Work email</FieldLabel>
+              <Input id="email" type="email" autoComplete="email" inputMode="email" placeholder="you@hard-code.in"
+                aria-invalid={!!form.formState.errors.email} {...form.register("email")} />
+              <FieldError errors={[form.formState.errors.email]} />
+            </Field>
+            <Button type="submit" variant="outline" className="w-full" disabled={sending || googleLoading}>
+              {sending && <Spinner />}
+              Email me a sign-in link
+            </Button>
+          </FieldGroup>
+          <Button type="button" variant="link" size="sm" className="mt-2 w-full" onClick={() => setMode("password")}>
+            Use a password instead
+          </Button>
+        </form>
+      )}
       {error && (
         <p className="text-destructive text-sm" role="alert">
           {error}

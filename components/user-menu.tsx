@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import Link from "next/link";
+import { KeyRoundIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,9 @@ export function UserMenu({ me }: { me: Me }) {
           <DropdownMenuRadioItem value="system"><MonitorIcon aria-hidden /> System</DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/account"><KeyRoundIcon aria-hidden /> Account and password</Link>
+        </DropdownMenuItem>
         <form action="/auth/signout" method="post">
           <DropdownMenuItem asChild>
             <button type="submit" className="w-full">

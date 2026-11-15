@@ -21,6 +21,8 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // The e2e tests build a separate copy (NEXT_DIST_DIR=.next-e2e) against the local stack.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   // Every page is per-user and RLS-scoped, so pages render dynamically; Cache Components and
   // partial prefetching are off on purpose (docs/DECISIONS.md D13).
   cacheComponents: false,
