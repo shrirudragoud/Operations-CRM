@@ -21,6 +21,12 @@
 | D16 | Partners can open deals only at institutions they own; partners have no departments | Matches the "own rows only" matrix; previously a partner could open a deal at any institution id |
 | D17 | `lib/db.types.ts` generated from the migrations (`tools/gen-types.mjs`) | Types stay in step with migrations without network access to the project; same format as `supabase gen types`, so either can overwrite it |
 
+| D18 | A workshop is a physical event at a school/college/institution lasting 1, 3 or 5 days. 1-3 trainers travel with a component kit; trainers teach, hand out controllers/sensors, and students build on the IDE in the workshop or with the online builder (founder, 15 Nov 2026) | Confirms events carry a lead trainer + up to 2 assistants (`event_staff`), kits issued per event, and a duration of 1-5 days |
+| D19 | Workshops may be paid or free promotional ones; Won is allowed at INR 0 and no value rule is added (founder) | Closes open question 4. Keep `deal.value_inr` as is; reporting should split paid vs promotional by value = 0 |
+| D20 | Team is under 9 people, about 2 per department, people share departments and roles stay flexible (founder) | Closes open question 2. No UI merge: give people several departments (already supported). Revisit the partner/role split only if needed |
+| D21 | Archive instead of hard delete for institutions, deals and events (founder) | Closes open question 11. Implemented as `archived_at` columns + RLS/UI filters in migration 0011 (Phase 1) |
+| D22 | No partner-specific KPIs yet; `kpi_target` stays unused until the partner contract defines metrics (founder) | Closes open question 10 for now. Priority is a solid operations tool first |
+
 ## Open questions for the founder (answer before the phase noted)
 1. **Which Supabase project is the ops DB?** The intended ops project is separate from the IDE product DB
    (`Idea_labs_DB`). Confirm, and decide copy-by-sync vs read-only views if they ever share a project. (Phase 0)
