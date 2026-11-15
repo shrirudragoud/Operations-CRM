@@ -10,8 +10,9 @@ Everything the ops CRM needs in Postgres: schema `ops`, 34 tables, 3 views, busi
 2. Paste the contents of `supabase/all_migrations.sql` and Run. (If you prefer, run the eight
    files in `supabase/migrations/` in order, 0001 to 0008.)
 3. Settings > Data API > **Exposed schemas**: add `ops`. Without this the app cannot see the tables.
-4. Sign in once to the app (or add a user under Authentication > Users), then run
-   `supabase/seed_founder.sql` with your email. Until you do, RLS shows you nothing.
+4. Run `supabase/seed_founder.sql` with your sign-in email (it creates a founder invite). The first
+   time you sign in, the app turns it into your founder account. Everyone else is invited from the
+   Team page. Without an invite, a signed-in user sees nothing.
 5. Security Advisor must show no new errors.
 
 **B. Supabase CLI:**
