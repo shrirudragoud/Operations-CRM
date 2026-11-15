@@ -1,6 +1,28 @@
+# dependencies
 node_modules/
+.pnp
+.pnp.*
+
+# next.js / build
 .next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# testing
+coverage/
+test-results/
+playwright-report/
+
+# env + secrets (only .env.example is committed)
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+
+# misc
 *.zip
 .DS_Store
+npm-debug.log*
