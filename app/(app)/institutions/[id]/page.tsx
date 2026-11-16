@@ -5,6 +5,7 @@ import { ArchiveIcon, CalendarIcon, HandshakeIcon, MessageSquareIcon } from "luc
 import { z } from "zod";
 import { AccessDenied } from "@/components/access-denied";
 import { LoadError } from "@/components/load-error";
+import { LogActivityButton } from "@/components/log-activity-dialog";
 import { PageHeader } from "@/components/page-header";
 import { StageBadge } from "@/components/stage-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,9 +17,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireArea } from "@/lib/auth";
 import { formatDate, formatDateTime, formatINR } from "@/lib/format";
 import {
-  canArchiveInstitution, canCorrectStage, canEditInstitution, canManageContacts,
+  canArchiveInstitution, canCorrectStage, canEditInstitution, canLogActivity, canManageContacts,
 } from "@/lib/permissions";
 import { getInstitution360, listOwners } from "@/lib/queries/institution";
+import { KIND_LABELS as ACTIVITY_KIND_LABELS, OUTCOME_LABELS, type ActivityKind, type Outcome } from "@/lib/schemas/activity";
 import { KIND_LABELS, type InstitutionKind } from "@/lib/schemas/institution";
 import { createClient } from "@/utils/supabase/server";
 import { ContactsPanel } from "./contacts-panel";
@@ -79,6 +81,7 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
   const canEdit = canEditInstitution(me, inst.owner_id);
   const canArchive = canArchiveInstitution(me, inst.owner_id);
   const canContacts = canManageContacts(me, inst.owner_id);
+  const canLog = canLogActivity(me) && inst.archived_at === null;
   const showOwner = me.role !== "partner";
   const owners = canEdit && showOwner ? ((await listOwners(supabase)).data ?? []) : [];
   const archived = inst.archived_at !== null;
@@ -173,11 +176,19 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
         </TabsContent>
 
         <TabsContent value="activities" className="pt-4">
+          {canLog && (
+            <div className="mb-4">
+              <LogActivityButton
+                institution={{ id: inst.id, name: inst.name }}
+                contacts={inst.contacts.map((c) => ({ id: c.id, full_name: c.full_name }))}
+              />
+            </div>
+          )}
           {inst.activities.length === 0 ? (
             <ReadOnlyEmpty
               icon={<MessageSquareIcon aria-hidden />}
               title="No activities yet"
-              description="Calls, visits and emails are logged in Outreach. They will show up here."
+              description="Calls, visits and emails logged in Outreach show up here."
               href="/outreach"
               cta="Go to Outreach"
             />
@@ -187,8 +198,8 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
                 <Row key={a.id}>
                   <div>
                     <div className="font-medium">
-                      {a.kind}
-                      {a.outcome ? <span className="text-muted-foreground font-normal"> · {a.outcome}</span> : null}
+                      {ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}
+                      {a.outcome ? <span className="text-muted-foreground font-normal"> · {OUTCOME_LABELS[a.outcome as Outcome] ?? a.outcome}</span> : null}
                     </div>
                     {a.notes && <div className="text-muted-foreground line-clamp-2 text-sm">{a.notes}</div>}
                     {a.next_step && (

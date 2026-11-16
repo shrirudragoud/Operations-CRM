@@ -1,0 +1,275 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import { CheckIcon, ChevronsUpDownIcon, PlusIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import { logActivity, searchInstitutions, type InstitutionOption } from "@/lib/actions/activity";
+import { todayIST } from "@/lib/format";
+import {
+  ACTIVITY_KINDS, KIND_LABELS, OUTCOMES, OUTCOME_LABELS, activitySchema, type ActivityInput, type ActivityValues,
+} from "@/lib/schemas/activity";
+
+const NO_VALUE = "none"; // Radix Select cannot use an empty string as a value.
+
+export type ActivityContact = { id: string; full_name: string };
+type FixedInstitution = { id: string; name: string };
+
+/**
+ * Log a visit, call, email, WhatsApp, STEM class or booth. With `institution` the target is fixed
+ * (Institution 360); without it the user searches for one (Outreach). The database does the rest:
+ * stage change, Workshop deal on "qualified" and the follow-up task.
+ */
+export function LogActivityButton({
+  institution, contacts = [], label = "Log activity", variant = "default",
+}: { institution?: FixedInstitution; contacts?: ActivityContact[]; label?: string; variant?: "default" | "outline" }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant={variant} onClick={() => setOpen(true)}><PlusIcon aria-hidden /> {label}</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <ActivityForm institution={institution} contacts={contacts} onDone={() => setOpen(false)} />
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function ActivityForm({
+  institution, contacts, onDone,
+}: { institution?: FixedInstitution; contacts: ActivityContact[]; onDone: () => void }) {
+  const [serverError, setServerError] = useState<string | null>(null);
+  const today = todayIST();
+  const form = useForm<ActivityInput, unknown, ActivityValues>({
+    resolver: zodResolver(activitySchema),
+    defaultValues: {
+      institution_id: institution?.id ?? "",
+      contact_id: "",
+      kind: "visit",
+      outcome: "",
+      notes: "",
+      happened_on: today,
+      next_step: "",
+      next_step_due: "",
+    },
+  });
+  const { errors, isSubmitting } = form.formState;
+  const outcome = useWatch({ control: form.control, name: "outcome" });
+
+  async function onSubmit() {
+    setServerError(null);
+    const res = await logActivity(form.getValues());
+    if (!res.ok) {
+      for (const [key, msgs] of Object.entries(res.fieldErrors ?? {})) {
+        form.setError(key as keyof ActivityInput, { message: msgs[0] });
+      }
+      setServerError(res.error);
+      return;
+    }
+    const extras = [res.data.dealCreated && "Workshop deal is open at Meeting", res.data.followUpCreated && "follow-up task created"].filter(Boolean);
+    toast.success("Activity logged", { description: extras.length ? extras.join("; ") : undefined });
+    onDone();
+  }
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-6">
+      <DialogHeader>
+        <DialogTitle>Log activity</DialogTitle>
+        <DialogDescription>
+          {institution ? `What happened with ${institution.name}.` : "Record a touch so the next person knows where things stand."}
+        </DialogDescription>
+      </DialogHeader>
+      <FieldGroup>
+        {!institution && (
+          <Field data-invalid={!!errors.institution_id}>
+            <FieldLabel htmlFor="activity-institution">Institution</FieldLabel>
+            <Controller
+              control={form.control}
+              name="institution_id"
+              render={({ field }) => <InstitutionPicker value={field.value} onChange={field.onChange} invalid={!!errors.institution_id} />}
+            />
+            <FieldError errors={[errors.institution_id]} />
+          </Field>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field data-invalid={!!errors.kind}>
+            <FieldLabel htmlFor="activity-kind">What did you do?</FieldLabel>
+            <Controller
+              control={form.control}
+              name="kind"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="activity-kind" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ACTIVITY_KINDS.map((k) => <SelectItem key={k} value={k}>{KIND_LABELS[k]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <FieldError errors={[errors.kind]} />
+          </Field>
+          <Field data-invalid={!!errors.outcome}>
+            <FieldLabel htmlFor="activity-outcome">Outcome</FieldLabel>
+            <Controller
+              control={form.control}
+              name="outcome"
+              render={({ field }) => (
+                <Select value={field.value || NO_VALUE} onValueChange={(v) => field.onChange(v === NO_VALUE ? "" : v)}>
+                  <SelectTrigger id="activity-outcome" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_VALUE}>Not set</SelectItem>
+                    {OUTCOMES.map((o) => <SelectItem key={o} value={o}>{OUTCOME_LABELS[o]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <FieldError errors={[errors.outcome]} />
+          </Field>
+        </div>
+        {outcome === "qualified" && (
+          <Alert>
+            <AlertDescription>
+              Qualified moves the institution to Qualified and opens a Workshop deal at Meeting, unless it already has one open.
+            </AlertDescription>
+          </Alert>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {institution && contacts.length > 0 && (
+            <Field data-invalid={!!errors.contact_id}>
+              <FieldLabel htmlFor="activity-contact">Spoke to</FieldLabel>
+              <Controller
+                control={form.control}
+                name="contact_id"
+                render={({ field }) => (
+                  <Select value={field.value || NO_VALUE} onValueChange={(v) => field.onChange(v === NO_VALUE ? "" : v)}>
+                    <SelectTrigger id="activity-contact" className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Not recorded</SelectItem>
+                      {contacts.map((c) => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError errors={[errors.contact_id]} />
+            </Field>
+          )}
+          <Field data-invalid={!!errors.happened_on}>
+            <FieldLabel htmlFor="activity-date">Date</FieldLabel>
+            <Input id="activity-date" type="date" max={today} aria-invalid={!!errors.happened_on} {...form.register("happened_on")} />
+            <FieldError errors={[errors.happened_on]} />
+          </Field>
+        </div>
+        <Field data-invalid={!!errors.notes}>
+          <FieldLabel htmlFor="activity-notes">Notes</FieldLabel>
+          <Textarea id="activity-notes" rows={3} aria-invalid={!!errors.notes} {...form.register("notes")} />
+          <FieldError errors={[errors.notes]} />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+          <Field data-invalid={!!errors.next_step}>
+            <FieldLabel htmlFor="activity-next">Next step</FieldLabel>
+            <Input id="activity-next" autoComplete="off" aria-invalid={!!errors.next_step} {...form.register("next_step")} />
+            <FieldError errors={[errors.next_step]} />
+          </Field>
+          <Field data-invalid={!!errors.next_step_due}>
+            <FieldLabel htmlFor="activity-due">Due</FieldLabel>
+            <Input id="activity-due" type="date" min={today} aria-invalid={!!errors.next_step_due} {...form.register("next_step_due")} />
+            <FieldError errors={[errors.next_step_due]} />
+          </Field>
+        </div>
+        <FieldDescription>A next step with a due date becomes a follow-up task for you.</FieldDescription>
+      </FieldGroup>
+      {serverError && (
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{serverError}</AlertDescription>
+        </Alert>
+      )}
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone}>Cancel</Button>
+        <Button type="submit" disabled={isSubmitting}>{isSubmitting && <Spinner />} Log activity</Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function InstitutionPicker({ value, onChange, invalid }: { value: string; onChange: (id: string) => void; invalid: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [options, setOptions] = useState<InstitutionOption[]>([]);
+  const [picked, setPicked] = useState<InstitutionOption | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let stale = false;
+    const timer = setTimeout(async () => {
+      const res = await searchInstitutions(term);
+      if (stale) return;
+      setLoadError(!res.ok);
+      if (res.ok) setOptions(res.data);
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [term, open]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id="activity-institution"
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-invalid={invalid}
+          className="w-full justify-between font-normal"
+        >
+          <span className={picked && value ? "" : "text-muted-foreground"}>
+            {picked && value ? picked.name : "Search institutions…"}
+          </span>
+          <ChevronsUpDownIcon aria-hidden className="opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Type a name or city…" value={term} onValueChange={setTerm} />
+          <CommandList>
+            <CommandEmpty>{loadError ? "Couldn't search. Try again." : "No institution found."}</CommandEmpty>
+            <CommandGroup>
+              {options.map((o) => (
+                <CommandItem
+                  key={o.id}
+                  value={o.id}
+                  onSelect={() => {
+                    setPicked(o);
+                    onChange(o.id);
+                    setOpen(false);
+                  }}
+                >
+                  <div className="flex-1">
+                    <div>{o.name}</div>
+                    {o.city && <div className="text-muted-foreground text-xs">{o.city}</div>}
+                  </div>
+                  {o.id === value && <CheckIcon aria-hidden />}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}

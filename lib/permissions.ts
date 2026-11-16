@@ -121,6 +121,18 @@ export function canImportInstitutions(me: Me | null): boolean {
   return canCreateInstitution(me);
 }
 
+/** Outreach activities: Outreach writers, or a partner logging their own (activity_ins / activity_partner). */
+export function canLogActivity(me: Me | null): boolean {
+  if (!me || !canWrite(me)) return false;
+  return me.role === "partner" || inDept(me, "outreach");
+}
+
+/** Tasks: write needs a department the task belongs to, or being its assignee (task_upd). A partner can only finish their own follow-ups. */
+export function canUpdateTask(me: Me | null, task: { department: Department; assignee_id: string | null }): boolean {
+  if (!me || !canWrite(me)) return false;
+  return inDept(me, task.department) || task.assignee_id === me.id;
+}
+
 /** Can this user mark a deal Won? Founder only (D7; enforced by ops.deal_transition). */
 export function canMarkDealWon(me: Me | null): boolean {
   return isFounder(me);

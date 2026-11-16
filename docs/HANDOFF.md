@@ -15,7 +15,8 @@ Last updated: 16 Nov 2026 (session 3: Institutions workspace + Docker/Cloudflare
 | Phase 0 gate | **Passed on a local Supabase stack** (`e2e/phase0-gate.spec.ts`, 7 Playwright tests): founder claims invite, invites member + partner, each sees only their matrix, uninvited -> `/no-access`, last founder protected, deactivation is immediate. Not yet run on the hosted project |
 | `0014_deal_types_segments_community.sql` | Deal types Workshop / Faculty training / Lab deal / Other (`bundle` -> `other`), one open deal per type, `institution.segment`, `v_funnel` + `v_pipeline` views, `community_membership` table. **Local only so far**: 281 PGlite checks, applied to the local stack with 0 Advisor issues; **not applied to hosted** (founder to approve). Community/product user data is read from PostHog (D26), not stored separately |
 | Institutions workspace (Phase 1 step 1) | **Built** on branch `phase1-institutions`: `/institutions` (server-paginated list, filters stage/kind/district/owner/search), `/institutions/new`, `/institutions/[id]` (Institution 360: Overview, Contacts CRUD, Activities, Deals, Events, Notes), `/institutions/import` (CSV parse, dry run via `import_institutions`, error table, commit, template). Stage is a read-only badge (event-driven); founder-only "Correct stage"; archive/restore for founder/dept_lead only with DB rule errors inline; no delete button. Controls mirror RLS via `lib/permissions.ts`. Screenshots (desktop + phone): `docs/screenshots/` |
-| Tests | DB: 281 checks. Unit (Vitest): 68. E2E: 14 on the local stack (7 Phase 0 gate, 2 password sign-in, 5 institutions). `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates the screenshots (local stack only). `E2E_PORT` overrides the e2e app port (default 3100) when something else holds it |
+| Outreach workspace (Phase 1A step 2) | **Built** (branch `phase1-institutions`, migration `0015_territory_view.sql`, local only so far). `/outreach` has three tabs: **Follow-ups** (open `follow_up` tasks grouped overdue / today / upcoming, Mine or Everyone, one-click Done), **Territory** (`v_territory`: last touch and touch count per institution; filters segment, district, untouched, no touch in 30 days; server-paginated) and **Activity** history. **Log activity** dialog (header on Outreach, and on the Institution 360 Activities tab with a contact picker): kind, outcome, date (backdating allowed, not future), notes, next step + due date (both or neither). It is a plain `activity` insert: the `on_activity` trigger moves the stage, opens the Workshop deal on *qualified* and creates the follow-up task. `/tasks` is now real (mine / my departments, open / done, Start and Done); My work has a Done button. Partners log only for institutions they own and can finish follow-ups assigned to them. Only Outreach writers, founder and partners can log (mirrors `activity_ins`); Sales and viewers cannot |
+| Tests | DB: 288 checks. Unit (Vitest): 84. E2E: 20 on the local stack (7 Phase 0 gate, 2 password sign-in, 5 institutions, 6 outreach). `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates the screenshots (local stack only). `E2E_PORT` overrides the e2e app port (default 3100) when something else holds it |
 | CI (`.github/workflows/ci.yml`) | DB tests + combined SQL + types freshness; lint, typecheck, unit, build, `npm audit` (prod: 0 vulnerabilities); gitleaks; e2e job starts Supabase, **fails on any Advisor WARN**, runs Playwright |
 | Edge Functions / cron jobs, notifications | Not written (specs in `docs/INTEGRATIONS.md`) |
 
@@ -90,12 +91,12 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 
 ## Next steps (in order)
 0. Founder: revoke the Supabase CLI token `hardcode-ops-agent`; from a machine that reaches Postgres run
-   `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013` (and 0014 once applied).
+   `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013` (and 0014, 0015 once applied).
 1. Founder: steps above, plus answers to the open questions in `docs/DECISIONS.md` (3, 4, 7, 10, 11 block Phase 1; 2 decides the UI merge).
 2. Agent: once applied, confirm Advisors, run the gate on the hosted project, deploy to Vercel (security headers
    and CSP are in `next.config.ts`).
-3. Phase 1 (`docs/BUILD_PLAN.md`), one workspace per PR: ~~Institutions + contacts + 360~~ (done, branch
-   `phase1-institutions`, no PR opened) -> Outreach -> Sales -> Workshop -> Inventory.
+3. Build order (D27, `docs/BUILD_PLAN.md`), one workspace per PR: ~~Institutions~~ (done) -> ~~Outreach~~ (done) -> **Sales** ->
+   Workshop -> Inventory -> Product -> Community. Outreach + Sales are the main funnel and come first.
 
 ## Environment notes
 - This session's container could reach npm, the shadcn registry, GitHub raw and Docker images, so the full
@@ -123,7 +124,8 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
   `claim_access()` with the magic link, which the e2e covers.
 - CSP allows `'unsafe-inline'` scripts/styles (Next runtime); move to nonces in Phase 5.
 - No rate limiting beyond Supabase Auth's own limits; no Sentry/uptime monitoring yet (Phase 5).
-- My work (50) and Team (500) are capped rather than paginated. The Institutions list is server-paginated.
+- My work (50), Team (500) and the Outreach follow-up queue (200) are capped rather than paginated; Tasks, Territory and Activity history are server-paginated.
+- Outreach: an activity cannot be edited or deleted from the UI yet (the database allows leads to delete); the Territory last-touch column is empty for Sales-only users because they cannot read activities (RLS). The Institutions list is server-paginated.
 - Task A (hosted founder-only check with two real Auth users + one uninvited) is the founder's Dashboard job; the same
   behaviours pass locally in `e2e/phase0-gate.spec.ts`. Never run e2e/reset scripts against hosted (the helpers refuse non-local URLs).
 - No cron schedules or Edge Functions yet: PostHog sync, review-queue build, KPI snapshots, low-stock job,

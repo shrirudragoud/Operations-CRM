@@ -37,26 +37,51 @@ Gate: founder signs in, invites a member and a partner; each sees only what the 
 non-invited Google account lands on `/no-access`; last founder cannot be removed.
 **Status:** passed on a local Supabase stack (`e2e/phase0-gate.spec.ts`); repeat on the hosted project.
 
-## Phase 1: Revenue and assets (about 3 weeks)
-Progress: database core done and frozen (`0011` archive, `0012`, `0013`: trainer picker, CSV import, search, job log, DPDP erasure; all applied to hosted). **Institutions + contacts + 360 + CSV import: done** (branch `phase1-institutions`). `0014` (deal types, segments, funnel/pipeline views, community membership) written and tested, not yet on hosted. Next: Outreach, then Sales with the four deal types and a segment filter.
-1. **Institutions + contacts (DONE):** list (filters: stage, district, type, owner), create/edit, CSV import
+## Build order (founder decision, 16 Nov 2026, D27)
+**Institutions -> Outreach -> Sales -> Workshop -> Inventory -> Product -> Community.** The main funnel
+(find institution -> visit/call -> qualified -> deal -> won) is built first and must be reliable and
+tested before anything downstream. One workspace per PR; each ships migration (if any) + tests + UI + docs.
+
+## Phase 1A: Main funnel (Institutions, Outreach, Sales)
+Progress: database core frozen (`0011`-`0013` on hosted); `0014` (deal types Workshop / Faculty training /
+Lab deal / Other, segments, funnel + pipeline views, community membership) tested locally, to be applied to
+hosted with the Sales PR. **Institutions + contacts + 360 + CSV import: done** (`phase1-institutions`).
+1. **Institutions (DONE):** list (filters: stage, district, type, owner), create/edit, CSV import
    (dry-run, error report), **Institution 360** page.
-2. **Outreach:** activity log `sheet`, follow-up queue, territory list, STEM calendar. Qualified -> deal appears.
-3. **Sales:** kanban pipeline, deal detail (lines, files, history), lost dialog, founder "Mark won",
-   forecast, partner scorecard.
+2. **Outreach (DONE, `0015`):** log activity (visit, call, email, WhatsApp, STEM class, booth) from the list, the 360 and a
+   quick-add sheet; outcome (no answer, interested, not interested, follow up, qualified); next step + due
+   date creates the follow-up task; **follow-up queue** (overdue / today / upcoming, mark done);
+   **territory list** (by district/segment: untouched, contacted, qualified, last touch); my activity
+   history. Qualified -> institution `qualified` + a Workshop deal at *meeting* (DB rule, UI shows it).
+3. **Sales:** kanban pipeline by deal type (Workshop, Faculty training, Lab deal, Other) with a
+   School/College segment filter; create deal from an institution; deal detail (lines, value, probability,
+   expected close, history); move stage with DB rule errors inline; **lost** dialog (reason required);
+   founder-only **Mark won** (shows the event/tasks it creates); forecast (value + weighted); funnel and
+   pipeline reports from `v_funnel` / `v_pipeline`; partner scorecard.
+Acceptance
+- A visit logged as *qualified* produces exactly one deal at meeting and the institution moves to qualified.
+- Follow-up tasks appear in the queue and in My work; completing one removes it.
+- Only the founder sees/uses Mark won; a lost deal needs a reason; illegal stage moves show the DB error.
+- Won Workshop/Faculty training creates one draft event + two tasks; Lab deal one planning task; Other one
+  Sales task.
+- Partners see and edit only their own institutions, activities and deals; viewers are read-only.
+Gate: **a real prospect travels visit -> qualified -> deal -> won in the live system**, and the funnel and
+pipeline numbers match the records.
+
+## Phase 1B: Delivery (Workshop, Inventory)
 4. **Workshop:** event calendar + detail, status stepper, trainer picker (only certified/free shown),
    run-sheet checklist, cohort code display/copy.
 5. **Inventory:** items, kits (BOM editor), locations, receive stock, reserve/issue/return dialogs
    (`close_event_returns` form with per-item returned/damaged/lost), stock-by-location, low-stock panel.
 Acceptance (selected)
-- Won deal creates exactly one draft event and two tasks; UI links to them.
 - Scheduling an uncertified or double-booked trainer shows the DB error inline; trainer picker prevents it.
 - Reserving more than available fails with the SKU named; issue/return keep totals correct.
 - Returns form blocks until every issued item balances; loss requires a note.
 Gate: **one real workshop runs end to end** in the system (deal won -> event -> kits issued/returned ->
 cohort students visible in activation view).
 
-## Phase 2: Product insight (about 2 weeks)
+## Phase 2: Product insight (about 2 weeks; after Workshop and Inventory)
+Product and community user data comes from the existing PostHog (D26); no parallel user store.
 - [ ] `ops.job_run` table; Edge Functions `posthog-sync`, `build-review-queue`, `ide-sync` + cron
       (`INTEGRATIONS.md`); IDE cohort-code change shipped.
 - [ ] Review queue screen (`resizable`): my 15 items, open replay link, observation form, skip with reason.
@@ -65,7 +90,7 @@ cohort students visible in activation view).
 - [ ] Incidents, catalog request queue.
 Gate: a reviewer clears a 15-replay queue in under 45 minutes; one insight linked to a shipped fix.
 
-## Phase 3: People and community (about 2 weeks)
+## Phase 3: Community and people (about 2 weeks; after Product)
 - [ ] Training: trainer roster + availability, programs/modules, teacher enrollments, certification flow
       (`teachers_trained` rule), leaderboard.
 - [ ] Community: growth metrics cards/charts, content kanban (`published` needs URL), featured queue,

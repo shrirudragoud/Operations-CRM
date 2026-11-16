@@ -85,4 +85,19 @@ export default async function pipelineTests(t) {
   await expectVal('membership changes are audited', `select count(*) > 0 from ops.audit_log where table_name='community_membership'`, true);
   await run(C, `delete from ops.community_membership where name='Founder Club'`);
   await expectVal('a community member (not lead) cannot delete a membership', `select count(*) from ops.community_membership where name='Founder Club'`, 1);
+  console.log('\nTerritory view (0015)');
+  const T1 = await val(`insert into ops.institution(name,kind,city,district) values ('Terr Untouched','school','Pune','Pune') returning id`);
+  const T2 = await val(`insert into ops.institution(name,kind,city,district) values ('Terr Touched','polytechnic','Pune','Pune') returning id`);
+  await run(O, `insert into ops.activity(institution_id, kind, outcome) values ('${T2}','call','no_answer')`);
+  await run(O, `insert into ops.activity(institution_id, kind, outcome) values ('${T2}','visit','follow_up')`);
+  await expectVal('an untouched institution has no last touch', `select activities || ':' || (last_activity_at is null) from ops.v_territory where id='${T1}'`, '0:true');
+  await expectVal('a touched institution counts its activities', `select activities || ':' || (last_activity_at is not null) from ops.v_territory where id='${T2}'`, '2:true');
+  await expectVal('the territory view carries the derived segment', `select segment from ops.v_territory where id='${T2}'`, 'college');
+  await run(F, `update ops.institution set archived_at = now() where id='${T1}'`);
+  await expectVal('archived institutions are not in the territory', `select count(*) from ops.v_territory where id='${T1}'`, 0);
+  await expectOk('a partner can query the territory (RLS limits it to owned rows)', P, `select * from ops.v_territory`);
+  {
+    const r = await rows(P, `select count(*)::int n from ops.v_territory where id='${T2}'`);
+    r[0].n === 0 ? ok('a partner does not see institutions they do not own') : bad('a partner does not see institutions they do not own', JSON.stringify(r));
+  }
 }

@@ -34,3 +34,10 @@ export function initials(name: string): string {
 export function isPast(value: string): boolean {
   return new Date(value).getTime() <= Date.now();
 }
+
+const ymdFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Today's calendar date in India as yyyy-mm-dd. */
+export function todayIST(now: Date = new Date()): string {
+  return ymdFmt.format(now);
+}

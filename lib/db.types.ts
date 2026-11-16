@@ -1730,6 +1730,22 @@ export type Database = {
         }
         Relationships: []
       }
+      v_territory: {
+        Row: {
+          id: string | null
+          name: string | null
+          kind: string | null
+          segment: string | null
+          city: string | null
+          district: string | null
+          state: string | null
+          stage: Database["ops"]["Enums"]["lifecycle_stage"] | null
+          owner_id: string | null
+          last_activity_at: string | null
+          activities: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       available_trainers: {

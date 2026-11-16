@@ -7,9 +7,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
 import { LoadError } from "@/components/load-error";
+import { TaskStatusButton } from "@/components/task-status-button";
 import { requireMe } from "@/lib/auth";
-import { formatDate } from "@/lib/format";
-import { DEPARTMENT_LABELS } from "@/lib/permissions";
+import { formatDate, todayIST } from "@/lib/format";
+import { DEPARTMENT_LABELS, canUpdateTask } from "@/lib/permissions";
 import { createClient } from "@/utils/supabase/server";
 
 export const metadata: Metadata = { title: "My work" };
@@ -20,11 +21,11 @@ const PRIORITY: Record<number, string> = { 1: "Urgent", 2: "High", 3: "Normal", 
 export default async function MyWorkPage() {
   const me = await requireMe();
   const supabase = await createClient();
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const today = todayIST();
 
   const { data: tasks, error, count } = await supabase
     .from("task")
-    .select("id, title, department, status, priority, due_date", { count: "exact" })
+    .select("id, title, department, status, priority, due_date, assignee_id", { count: "exact" })
     .eq("assignee_id", me.id)
     .in("status", ["todo", "doing", "blocked"])
     .order("due_date", { ascending: true, nullsFirst: false })
@@ -65,6 +66,7 @@ export default async function MyWorkPage() {
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden md:table-cell">Priority</TableHead>
                   <TableHead className="text-right">Due</TableHead>
+                  <TableHead><span className="sr-only">Actions</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -82,6 +84,9 @@ export default async function MyWorkPage() {
                         {formatDate(t.due_date)}
                         {overdue && <Badge variant="destructive" className="ml-2">Overdue</Badge>}
                       </TableCell>
+                      <TableCell className="text-right">
+                        {canUpdateTask(me, t) && <TaskStatusButton id={t.id} title={t.title} />}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -91,7 +96,7 @@ export default async function MyWorkPage() {
         </CardContent>
       </Card>
       <p className="text-muted-foreground mt-4 text-xs">
-        Full task management (filters, status changes) arrives with <Link className="underline" href="/tasks">Tasks</Link> in Phase 1.
+        Tasks for your whole department are in <Link className="underline" href="/tasks">Tasks</Link>.
       </p>
     </>
   );

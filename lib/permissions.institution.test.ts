@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canArchiveInstitution, canCorrectStage, canCreateInstitution, canEditInstitution, canImportInstitutions,
-  canManageContacts, type Me,
+  canLogActivity, canManageContacts, canUpdateTask, type Me,
 } from "./permissions";
 
 const ME_ID = "00000000-0000-4000-8000-000000000001";
@@ -87,5 +87,37 @@ describe("canImportInstitutions (import_institutions)", () => {
     expect(canImportInstitutions(me("member", ["sales"]))).toBe(true);
     expect(canImportInstitutions(me("member", ["workshop"]))).toBe(false);
     expect(canImportInstitutions(me("viewer", ["outreach"]))).toBe(false);
+  });
+});
+
+describe("canLogActivity (activity_ins / activity_partner)", () => {
+  it("allows founder, Outreach writers and partners", () => {
+    expect(canLogActivity(me("founder"))).toBe(true);
+    expect(canLogActivity(me("member", ["outreach"]))).toBe(true);
+    expect(canLogActivity(me("dept_lead", ["outreach", "sales"]))).toBe(true);
+    expect(canLogActivity(me("partner"))).toBe(true);
+  });
+  it("refuses other departments, viewers and signed-out users", () => {
+    expect(canLogActivity(me("member", ["sales"]))).toBe(false);
+    expect(canLogActivity(me("member", ["workshop", "community"]))).toBe(false);
+    expect(canLogActivity(me("viewer", ["outreach"]))).toBe(false);
+    expect(canLogActivity(null)).toBe(false);
+  });
+});
+
+describe("canUpdateTask (task_upd)", () => {
+  it("lets a writer update tasks of their department or assigned to them", () => {
+    expect(canUpdateTask(me("member", ["outreach"]), { department: "outreach", assignee_id: null })).toBe(true);
+    expect(canUpdateTask(me("member", ["sales"]), { department: "outreach", assignee_id: ME_ID })).toBe(true);
+    expect(canUpdateTask(me("founder"), { department: "training", assignee_id: OTHER_ID })).toBe(true);
+  });
+  it("lets a partner finish only a follow-up assigned to them", () => {
+    expect(canUpdateTask(me("partner"), { department: "outreach", assignee_id: ME_ID })).toBe(true);
+    expect(canUpdateTask(me("partner"), { department: "outreach", assignee_id: OTHER_ID })).toBe(false);
+  });
+  it("refuses another department's task, viewers and signed-out users", () => {
+    expect(canUpdateTask(me("member", ["sales"]), { department: "outreach", assignee_id: OTHER_ID })).toBe(false);
+    expect(canUpdateTask(me("viewer", ["outreach"]), { department: "outreach", assignee_id: ME_ID })).toBe(false);
+    expect(canUpdateTask(null, { department: "outreach", assignee_id: null })).toBe(false);
   });
 });
