@@ -75,16 +75,15 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
   password; then sign in on `/login`. `claim_access` turns the existing invite into the founder staff row.
   Do not turn off email confirmation project-wide: `claim_access` trusts the JWT email, so unverified signups
   could claim an invite.
-- **Docker + Cloudflare (no Vercel), session 3, on the founder's machine:**
-  `docker compose --env-file .env.local up -d --build app` serves the app on `http://127.0.0.1:${APP_PORT:-3400}`
-  (multi-stage `Dockerfile`, Next `output: standalone`, non-root, healthcheck on `/login`). Only the two
-  `NEXT_PUBLIC_*` values are build args; no secret enters the image. `docker compose --env-file .env.local
-  --profile tunnel up -d tunnel` publishes it through Cloudflare: with `CLOUDFLARE_TUNNEL_TOKEN` set it is the
-  named tunnel (stable hostname, point it at `http://app:3000`); without it a temporary
-  `https://<random>.trycloudflare.com` URL is printed in `docker compose logs tunnel` and changes on restart.
-  The container talks to the **hosted** ops project, so add the public URL's `/auth/callback` to Supabase Auth
-  redirect URLs (and set Site URL) before using Google/magic link. Password sign-in needs nothing.
-  (The earlier Claude sandbox could not open tunnels; this machine can.)
+- **Production URL: https://ops.hard-code.in** (16 Nov 2026). Docker container `hardcode-ops-app` (`docker compose
+  --env-file .env.local up -d --build app`, `restart: unless-stopped`) listens on `127.0.0.1:3400`. The host's existing
+  named tunnel `hardcode-prod` (systemd user service `cloudflared.service`, config `~/.cloudflared/config.yml`, backup
+  `config.yml.bak-2026-11-16`) has the rule `ops.hard-code.in -> http://127.0.0.1:3400`, and a Cloudflare CNAME to the
+  tunnel exists. After editing that file run `systemctl --user restart cloudflared.service` (also briefly drops
+  api/portal/www). Only the two `NEXT_PUBLIC_*` values are Docker build args; no secret enters the image.
+  The image talks to the **hosted** ops project, so Supabase Auth -> URL Configuration needs Site URL
+  `https://ops.hard-code.in` and Redirect URLs `https://ops.hard-code.in/auth/callback` (+ `http://127.0.0.1:3400/auth/callback`).
+  The compose `tunnel` profile is only for throwaway trycloudflare URLs.
 - Local pm2 services hold ports 3000/3100/3210/8080; the compose app uses 3400, e2e uses `E2E_PORT` (3320 used).
 - E2E tests build their own copy against the local stack (`NEXT_DIST_DIR=.next-e2e`) and refuse non-local URLs,
   so they can never reset the hosted project.
@@ -127,7 +126,6 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 - My work (50) and Team (500) are capped rather than paginated. The Institutions list is server-paginated.
 - Task A (hosted founder-only check with two real Auth users + one uninvited) is the founder's Dashboard job; the same
   behaviours pass locally in `e2e/phase0-gate.spec.ts`. Never run e2e/reset scripts against hosted (the helpers refuse non-local URLs).
-- Docker quick-tunnel URL is temporary; a stable hostname needs a Cloudflare named tunnel token.
 - No cron schedules or Edge Functions yet: PostHog sync, review-queue build, KPI snapshots, low-stock job,
   notifications.
 - Event status `in_progress` is never set automatically; decide: manual button, or cron at `starts_at`.

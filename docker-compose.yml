@@ -1,8 +1,8 @@
-# Run the CRM in Docker and publish it through Cloudflare (no Vercel).
-#   docker compose --env-file .env.local up -d --build            # app only, on http://127.0.0.1:${APP_PORT:-3400}
-#   docker compose --env-file .env.local --profile tunnel up -d   # + Cloudflare tunnel
-# Tunnel: with CLOUDFLARE_TUNNEL_TOKEN set it is your named tunnel (stable hostname); without it, a
-# temporary https://<random>.trycloudflare.com address is printed in `docker compose logs tunnel`.
+# Run the CRM in Docker (no Vercel).
+#   docker compose --env-file .env.local up -d --build app        # http://127.0.0.1:${APP_PORT:-3400}
+# Production: https://ops.hard-code.in is an ingress rule on the host's `hardcode-prod` Cloudflare tunnel
+# (~/.cloudflared/config.yml, systemd user service cloudflared.service) pointing at 127.0.0.1:3400.
+# The `tunnel` profile below is only for a throwaway trycloudflare.com URL on a machine without that tunnel.
 services:
   app:
     build:
