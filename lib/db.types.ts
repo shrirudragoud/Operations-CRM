@@ -166,6 +166,70 @@ export type Database = {
           },
         ]
       }
+      community_membership: {
+        Row: {
+          id: string
+          institution_id: string
+          kind: string
+          name: string
+          status: string
+          contact_id: string | null
+          owner_id: string | null
+          started_on: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          institution_id: string
+          kind: string
+          name: string
+          status?: string
+          contact_id?: string | null
+          owner_id?: string | null
+          started_on?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          institution_id?: string
+          kind?: string
+          name?: string
+          status?: string
+          contact_id?: string | null
+          owner_id?: string | null
+          started_on?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_membership_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contact"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_membership_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institution"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_membership_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact: {
         Row: {
           id: string
@@ -784,6 +848,7 @@ export type Database = {
           updated_at: string
           archived_at: string | null
           archived_by: string | null
+          segment: string | null
         }
         Insert: {
           id?: string
@@ -801,6 +866,7 @@ export type Database = {
           updated_at?: string
           archived_at?: string | null
           archived_by?: string | null
+          segment?: string | null
         }
         Update: {
           id?: string
@@ -818,6 +884,7 @@ export type Database = {
           updated_at?: string
           archived_at?: string | null
           archived_by?: string | null
+          segment?: string | null
         }
         Relationships: [
           {
@@ -1610,6 +1677,14 @@ export type Database = {
         }
         Relationships: []
       }
+      v_funnel: {
+        Row: {
+          segment: string | null
+          stage: Database["ops"]["Enums"]["lifecycle_stage"] | null
+          institutions: number | null
+        }
+        Relationships: []
+      }
       v_low_stock: {
         Row: {
           item_id: string | null
@@ -1620,6 +1695,17 @@ export type Database = {
           in_warehouse: number | null
           reserved: number | null
           available: number | null
+        }
+        Relationships: []
+      }
+      v_pipeline: {
+        Row: {
+          kind: string | null
+          segment: string | null
+          stage: string | null
+          deals: number | null
+          value_inr: number | null
+          weighted_inr: number | null
         }
         Relationships: []
       }

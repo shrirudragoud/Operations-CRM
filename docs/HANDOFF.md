@@ -13,8 +13,9 @@ Last updated: 16 Nov 2026 (session 3: Institutions workspace + Docker/Cloudflare
 | Next.js app | **Phase 0 built.** Next 16 (App Router, `proxy.ts`), TypeScript strict, Tailwind v4, shadcn/ui (`radix-vega`), Supabase SSR clients |
 | Phase 0 screens | `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/auth/signout`, `/no-access` (not invited vs deactivated), app shell (role-aware sidebar, Ctrl+K workspace jump, user menu, theme, toasts), **My work** (open tasks), **Team** (invite, edit role/departments, deactivate/reactivate, extend/revoke invites), guarded placeholders for every later workspace |
 | Phase 0 gate | **Passed on a local Supabase stack** (`e2e/phase0-gate.spec.ts`, 7 Playwright tests): founder claims invite, invites member + partner, each sees only their matrix, uninvited -> `/no-access`, last founder protected, deactivation is immediate. Not yet run on the hosted project |
+| `0014_deal_types_segments_community.sql` | Deal types Workshop / Faculty training / Lab deal / Other (`bundle` -> `other`), one open deal per type, `institution.segment`, `v_funnel` + `v_pipeline` views, `community_membership` table. **Local only so far**: 281 PGlite checks, applied to the local stack with 0 Advisor issues; **not applied to hosted** (founder to approve). Community/product user data is read from PostHog (D26), not stored separately |
 | Institutions workspace (Phase 1 step 1) | **Built** on branch `phase1-institutions`: `/institutions` (server-paginated list, filters stage/kind/district/owner/search), `/institutions/new`, `/institutions/[id]` (Institution 360: Overview, Contacts CRUD, Activities, Deals, Events, Notes), `/institutions/import` (CSV parse, dry run via `import_institutions`, error table, commit, template). Stage is a read-only badge (event-driven); founder-only "Correct stage"; archive/restore for founder/dept_lead only with DB rule errors inline; no delete button. Controls mirror RLS via `lib/permissions.ts`. Screenshots (desktop + phone): `docs/screenshots/` |
-| Tests | DB: 243 checks. Unit (Vitest): 68. E2E: 14 on the local stack (7 Phase 0 gate, 2 password sign-in, 5 institutions). `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates the screenshots (local stack only). `E2E_PORT` overrides the e2e app port (default 3100) when something else holds it |
+| Tests | DB: 281 checks. Unit (Vitest): 68. E2E: 14 on the local stack (7 Phase 0 gate, 2 password sign-in, 5 institutions). `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates the screenshots (local stack only). `E2E_PORT` overrides the e2e app port (default 3100) when something else holds it |
 | CI (`.github/workflows/ci.yml`) | DB tests + combined SQL + types freshness; lint, typecheck, unit, build, `npm audit` (prod: 0 vulnerabilities); gitleaks; e2e job starts Supabase, **fails on any Advisor WARN**, runs Playwright |
 | Edge Functions / cron jobs, notifications | Not written (specs in `docs/INTEGRATIONS.md`) |
 
@@ -90,7 +91,7 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
 
 ## Next steps (in order)
 0. Founder: revoke the Supabase CLI token `hardcode-ops-agent`; from a machine that reaches Postgres run
-   `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013`.
+   `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013` (and 0014 once applied).
 1. Founder: steps above, plus answers to the open questions in `docs/DECISIONS.md` (3, 4, 7, 10, 11 block Phase 1; 2 decides the UI merge).
 2. Agent: once applied, confirm Advisors, run the gate on the hosted project, deploy to Vercel (security headers
    and CSP are in `next.config.ts`).

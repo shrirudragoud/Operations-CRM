@@ -250,6 +250,7 @@ await eq('a signed-in user with no staff row sees nothing', '99999999-0000-0000-
 
 await import('./test-access.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst }));
 await import('./test-archive.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst, ev, ev2 }));
+await import('./test-pipeline.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O }));
 await import('./test-core.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O, ev, ev2 }));
 
 console.log(`\n${pass} passed, ${fail} failed`);

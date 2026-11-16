@@ -27,7 +27,10 @@
 | D21 | Archive instead of hard delete for institutions, deals and events (founder) | Closes open question 11. Implemented as `archived_at` columns + RLS/UI filters in migration 0011 (Phase 1) |
 | D22 | No partner-specific KPIs yet; `kpi_target` stays unused until the partner contract defines metrics (founder) | Closes open question 10 for now. Priority is a solid operations tool first |
 
-| D23 | Database core frozen after `0013_core_complete` for the Phase 1 screens; automatic stages (`active`, `lab_customer`, `renewal`) wait for founder definitions and ship as `0014` | Screens can be built on a stable schema; the stage rules need business input. Proposal pending: `active` = at least 10 workshop students with a compile/flash in the last 14 days |
+| D24 | Deal types are Workshop, Faculty training (`fdp`), Lab deal (`lab_setup`) and Other (`other`, replaces `bundle`); one open deal per type per institution; schools and colleges are one institution list with a derived `segment` (school / college / other) used by every funnel and pipeline report (founder, 16 Nov 2026) | Migration `0014`. Winning Other creates a Sales task only (no event, no kits) |
+| D25 | Community relationships (clubs, ambassadors) are tracked in `ops.community_membership`, many per institution, written by Community (founder, 16 Nov 2026) | Migration `0014`. Hand-entered relationship data only |
+| D26 | Product and community **user data comes from the existing PostHog**, synced into `ide_user_snapshot` / `ph_user_daily` / `ph_session` (Phase 2 Edge Functions); the CRM never creates its own user or product-usage store (founder, 16 Nov 2026) | The product already runs on infra; a second source would drift. Community screens read these tables |
+| D23 | Database core frozen after `0013_core_complete` for the Phase 1 screens; automatic stages (`active`, `lab_customer`, `renewal`) wait for founder definitions and now ship as `0015` (`0014` was used for deal types, segments and community membership) | Screens can be built on a stable schema; the stage rules need business input. Proposal pending: `active` = at least 10 workshop students with a compile/flash in the last 14 days |
 
 ## Open questions for the founder (answer before the phase noted)
 1. **Which Supabase project is the ops DB?** The intended ops project is separate from the IDE product DB

@@ -38,7 +38,7 @@ non-invited Google account lands on `/no-access`; last founder cannot be removed
 **Status:** passed on a local Supabase stack (`e2e/phase0-gate.spec.ts`); repeat on the hosted project.
 
 ## Phase 1: Revenue and assets (about 3 weeks)
-Progress: database core done and frozen (`0011` archive, `0012`, `0013`: trainer picker, CSV import, search, job log, DPDP erasure; all applied to hosted). **Institutions + contacts + 360 + CSV import: done** (branch `phase1-institutions`). Next: Outreach.
+Progress: database core done and frozen (`0011` archive, `0012`, `0013`: trainer picker, CSV import, search, job log, DPDP erasure; all applied to hosted). **Institutions + contacts + 360 + CSV import: done** (branch `phase1-institutions`). `0014` (deal types, segments, funnel/pipeline views, community membership) written and tested, not yet on hosted. Next: Outreach, then Sales with the four deal types and a segment filter.
 1. **Institutions + contacts (DONE):** list (filters: stage, district, type, owner), create/edit, CSV import
    (dry-run, error report), **Institution 360** page.
 2. **Outreach:** activity log `sheet`, follow-up queue, territory list, STEM calendar. Qualified -> deal appears.

@@ -20,7 +20,11 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | Won is final | `deal_transition` | "A won deal cannot change stage" |
 | Only the founder can mark Won; `won_at` stamped | `deal_transition` | "Only the founder can mark a deal as won" |
 | Lost needs a reason; leaving lost clears it | `deal_transition` + check | "A lost reason is required" |
-| Won (workshop/fdp/bundle) -> draft event + `trainer_request` (training) + `reserve_kits` (workshop) tasks; institution -> `deal_won`. Won `lab_setup` -> `plan_lab_setup` task | `on_deal_won` | n/a |
+| Deal types: `workshop`, `fdp` (Faculty training), `lab_setup` (Lab deal), `other` | check `deal_kind_check` | check violation |
+| One open deal per type per institution; different types may run in parallel | unique index `deal_one_open_per_kind` | duplicate key value violates `deal_one_open_per_kind` |
+| Won workshop/fdp -> draft event + `trainer_request` (training) + `reserve_kits` (workshop) tasks; institution -> `deal_won`. Won `lab_setup` -> `plan_lab_setup` task. Won `other` -> `plan_other_deal` Sales task only | `on_deal_won` | n/a |
+| `institution.segment` (school / college / other) is derived from `kind`; `v_funnel` and `v_pipeline` report by segment and deal type | generated column + views | n/a |
+| Community memberships (club / ambassador / other): readable by internal staff, written by Community, deleted by Community lead/founder; unique per institution + kind + name | RLS `community_membership_*` | permission error |
 
 ## Events
 | Rule | Enforced by | Error |
@@ -96,7 +100,7 @@ See `ACCESS_MODEL.md` for the full matrix.
 - **Event `in_progress`:** manual button vs cron at `starts_at`.
 - **Stage `active`:** proposal: institution becomes `active` when >= N distinct cohort students from it
   have a flash/compile in the last 14 days (compute nightly from `ide_user_snapshot`).
-- **Stage `lab_customer`:** proposal: set when a `lab_setup` (or bundle) deal is won; also create a lab
+- **Stage `lab_customer`:** proposal: set when a `lab_setup` deal is won; also create a lab
   record and a recurring support/renewal task.
 - **`renewal` / `churned`:** proposal: renewal task 60 days before contract end; churned manual.
 - **Deal Won requires value > 0** unless a `free` flag is set (open question: are workshops free to win labs?).
