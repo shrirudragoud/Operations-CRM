@@ -1,6 +1,6 @@
 # Handoff
 
-Last updated: 15 Nov 2026 (session 2). **Taking over locally? Read `docs/LOCAL_AGENT_HANDOFF.md` first.** Owner/founder: Shri (Hard-Code / Idea-Labs).
+Last updated: 16 Nov 2026 (session 3: Institutions workspace + Docker/Cloudflare run). **Taking over locally? Read `docs/LOCAL_AGENT_HANDOFF.md` first.** Owner/founder: Shri (Hard-Code / Idea-Labs).
 
 ## What exists
 | Area | State |
@@ -13,7 +13,8 @@ Last updated: 15 Nov 2026 (session 2). **Taking over locally? Read `docs/LOCAL_A
 | Next.js app | **Phase 0 built.** Next 16 (App Router, `proxy.ts`), TypeScript strict, Tailwind v4, shadcn/ui (`radix-vega`), Supabase SSR clients |
 | Phase 0 screens | `/login` (Google + magic link), `/auth/callback` (exchange + `claim_access`), `/auth/signout`, `/no-access` (not invited vs deactivated), app shell (role-aware sidebar, Ctrl+K workspace jump, user menu, theme, toasts), **My work** (open tasks), **Team** (invite, edit role/departments, deactivate/reactivate, extend/revoke invites), guarded placeholders for every later workspace |
 | Phase 0 gate | **Passed on a local Supabase stack** (`e2e/phase0-gate.spec.ts`, 7 Playwright tests): founder claims invite, invites member + partner, each sees only their matrix, uninvited -> `/no-access`, last founder protected, deactivation is immediate. Not yet run on the hosted project |
-| Tests | DB: 243 checks. Unit (Vitest): 32 (`permissions`, `nav`, error mapping, formatters, schemas, safe redirects). E2E: 7 |
+| Institutions workspace (Phase 1 step 1) | **Built** on branch `phase1-institutions`: `/institutions` (server-paginated list, filters stage/kind/district/owner/search), `/institutions/new`, `/institutions/[id]` (Institution 360: Overview, Contacts CRUD, Activities, Deals, Events, Notes), `/institutions/import` (CSV parse, dry run via `import_institutions`, error table, commit, template). Stage is a read-only badge (event-driven); founder-only "Correct stage"; archive/restore for founder/dept_lead only with DB rule errors inline; no delete button. Controls mirror RLS via `lib/permissions.ts`. Screenshots (desktop + phone): `docs/screenshots/` |
+| Tests | DB: 243 checks. Unit (Vitest): 68. E2E: 14 on the local stack (7 Phase 0 gate, 2 password sign-in, 5 institutions). `SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts` regenerates the screenshots (local stack only). `E2E_PORT` overrides the e2e app port (default 3100) when something else holds it |
 | CI (`.github/workflows/ci.yml`) | DB tests + combined SQL + types freshness; lint, typecheck, unit, build, `npm audit` (prod: 0 vulnerabilities); gitleaks; e2e job starts Supabase, **fails on any Advisor WARN**, runs Playwright |
 | Edge Functions / cron jobs, notifications | Not written (specs in `docs/INTEGRATIONS.md`) |
 
@@ -73,19 +74,28 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
   password; then sign in on `/login`. `claim_access` turns the existing invite into the founder staff row.
   Do not turn off email confirmation project-wide: `claim_access` trusts the JWT email, so unverified signups
   could claim an invite.
-- A public URL is **not available from this sandbox** (it only has an HTTPS egress proxy: Cloudflare/ngrok/
-  localtunnel tunnels cannot connect). Port 3000 is registered as a preview port for the Claude app. For a real
-  URL deploy to Vercel (or any Node host) with the two `NEXT_PUBLIC_` variables, then add its
-  `/auth/callback` to Supabase Auth redirect URLs and set the Site URL.
+- **Docker + Cloudflare (no Vercel), session 3, on the founder's machine:**
+  `docker compose --env-file .env.local up -d --build app` serves the app on `http://127.0.0.1:${APP_PORT:-3400}`
+  (multi-stage `Dockerfile`, Next `output: standalone`, non-root, healthcheck on `/login`). Only the two
+  `NEXT_PUBLIC_*` values are build args; no secret enters the image. `docker compose --env-file .env.local
+  --profile tunnel up -d tunnel` publishes it through Cloudflare: with `CLOUDFLARE_TUNNEL_TOKEN` set it is the
+  named tunnel (stable hostname, point it at `http://app:3000`); without it a temporary
+  `https://<random>.trycloudflare.com` URL is printed in `docker compose logs tunnel` and changes on restart.
+  The container talks to the **hosted** ops project, so add the public URL's `/auth/callback` to Supabase Auth
+  redirect URLs (and set Site URL) before using Google/magic link. Password sign-in needs nothing.
+  (The earlier Claude sandbox could not open tunnels; this machine can.)
+- Local pm2 services hold ports 3000/3100/3210/8080; the compose app uses 3400, e2e uses `E2E_PORT` (3320 used).
 - E2E tests build their own copy against the local stack (`NEXT_DIST_DIR=.next-e2e`) and refuse non-local URLs,
   so they can never reset the hosted project.
 
 ## Next steps (in order)
+0. Founder: revoke the Supabase CLI token `hardcode-ops-agent`; from a machine that reaches Postgres run
+   `npx supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013`.
 1. Founder: steps above, plus answers to the open questions in `docs/DECISIONS.md` (3, 4, 7, 10, 11 block Phase 1; 2 decides the UI merge).
 2. Agent: once applied, confirm Advisors, run the gate on the hosted project, deploy to Vercel (security headers
    and CSP are in `next.config.ts`).
-3. Phase 1 (`docs/BUILD_PLAN.md`), one workspace per PR: Institutions + contacts + 360 -> Outreach -> Sales ->
-   Workshop -> Inventory.
+3. Phase 1 (`docs/BUILD_PLAN.md`), one workspace per PR: ~~Institutions + contacts + 360~~ (done, branch
+   `phase1-institutions`, no PR opened) -> Outreach -> Sales -> Workshop -> Inventory.
 
 ## Environment notes
 - This session's container could reach npm, the shadcn registry, GitHub raw and Docker images, so the full
@@ -113,8 +123,10 @@ Do **not** run any of this against `Idea_labs_DB`. Check the dashboard URL conta
   `claim_access()` with the magic link, which the e2e covers.
 - CSP allows `'unsafe-inline'` scripts/styles (Next runtime); move to nonces in Phase 5.
 - No rate limiting beyond Supabase Auth's own limits; no Sentry/uptime monitoring yet (Phase 5).
-- Lists in Phase 0 are capped (My work 50, Team 500) rather than paginated; Phase 1 lists need real
-  server pagination (TanStack Table).
+- My work (50) and Team (500) are capped rather than paginated. The Institutions list is server-paginated.
+- Task A (hosted founder-only check with two real Auth users + one uninvited) is the founder's Dashboard job; the same
+  behaviours pass locally in `e2e/phase0-gate.spec.ts`. Never run e2e/reset scripts against hosted (the helpers refuse non-local URLs).
+- Docker quick-tunnel URL is temporary; a stable hostname needs a Cloudflare named tunnel token.
 - No cron schedules or Edge Functions yet: PostHog sync, review-queue build, KPI snapshots, low-stock job,
   notifications.
 - Event status `in_progress` is never set automatically; decide: manual button, or cron at `starts_at`.

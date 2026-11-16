@@ -12,7 +12,7 @@ export function sql(query: string): string {
 /** Reset ops data + auth users between runs so the gate starts from "only a founder invite". */
 export function resetDatabase(founderEmail: string) {
   sql(`
-    truncate ops.audit_log, ops.task, ops.feedback, ops.activity, ops.deal_line, ops.deal, ops.contact,
+    truncate ops.audit_log, ops.task, ops.feedback, ops.activity, ops.deal_line, ops.deal, ops.contact, ops.institution,
              ops.kpi_target, ops.invite cascade;
     alter table ops.staff disable trigger t_staff_last_founder;
     delete from ops.staff;
@@ -20,6 +20,30 @@ export function resetDatabase(founderEmail: string) {
     delete from auth.users;
     insert into ops.invite (email, full_name, role) values ('${founderEmail}', 'Local Founder', 'founder');
   `);
+}
+
+/** Confirmed auth user with a password, the way an admin creates one. Local stack only. */
+export function createPasswordUser(email: string, password: string) {
+  sql(`
+    do $$ declare uid uuid := gen_random_uuid(); begin
+      insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+        raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+        confirmation_token, recovery_token, email_change, email_change_token_new, email_change_token_current,
+        reauthentication_token, phone_change, phone_change_token)
+      values ('00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated', '${email}',
+        extensions.crypt('${password}', extensions.gen_salt('bf')), now(),
+        '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '', '', '', '', '');
+      insert into auth.identities (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+      values (gen_random_uuid(), uid::text, uid, jsonb_build_object('sub', uid::text, 'email', '${email}', 'email_verified', true), 'email', now(), now(), now());
+    end $$;`);
+}
+
+export async function signInWithPassword(page: Page, email: string, password: string) {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in with password" }).click();
+  await expect(page).toHaveURL("/");
 }
 
 async function clearMailbox(email: string) {

@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // End-to-end tests run against a local Supabase stack (`npx supabase start`) and a production build
 // of the app on port 3100 (an allowed redirect URL in supabase/config.toml). Magic-link emails are
 // read from Mailpit. See e2e/README.md.
-const PORT = 3100;
+// Override with E2E_PORT when 3100 is taken. Password sign-in works on any port; magic-link tests need 3100.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 // The tests reset data, so they must NEVER talk to a hosted project. They build their own copy of the
 // app (separate dist dir) pointed at the local Supabase stack, ignoring whatever .env.local says.

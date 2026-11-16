@@ -1,0 +1,34 @@
+# Run the CRM in Docker and publish it through Cloudflare (no Vercel).
+#   docker compose --env-file .env.local up -d --build            # app only, on http://127.0.0.1:${APP_PORT:-3400}
+#   docker compose --env-file .env.local --profile tunnel up -d   # + Cloudflare tunnel
+# Tunnel: with CLOUDFLARE_TUNNEL_TOKEN set it is your named tunnel (stable hostname); without it, a
+# temporary https://<random>.trycloudflare.com address is printed in `docker compose logs tunnel`.
+services:
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?set in .env.local}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?set in .env.local}
+    image: hardcode-ops:latest
+    container_name: hardcode-ops-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-3400}:3000"
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    container_name: hardcode-ops-tunnel
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    command: >
+      tunnel --no-autoupdate ${CLOUDFLARE_TUNNEL_TOKEN:+run}
+      ${CLOUDFLARE_TUNNEL_TOKEN:---url http://app:3000}
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}

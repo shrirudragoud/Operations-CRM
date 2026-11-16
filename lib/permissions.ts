@@ -81,6 +81,46 @@ export function canDelete(me: Me | null, dept: Department): boolean {
   return me.role === "dept_lead" && me.departments.includes(dept);
 }
 
+// Department membership as RLS sees it (ops.in_dept): founder = every department, partner = none.
+function inDept(me: Me | null, dept: Department): boolean {
+  if (!me || me.role === "partner") return false;
+  return me.role === "founder" || me.departments.includes(dept);
+}
+
+/** Institutions: create needs Outreach or Sales; a partner may create only rows they own (institution_ins). */
+export function canCreateInstitution(me: Me | null): boolean {
+  if (!me || !canWrite(me)) return false;
+  return me.role === "partner" || inDept(me, "outreach") || inDept(me, "sales");
+}
+
+/** Institutions: update needs Outreach, Sales or Workshop, or owning the row (institution_upd). */
+export function canEditInstitution(me: Me | null, ownerId: string | null): boolean {
+  if (!me || !canWrite(me)) return false;
+  return inDept(me, "outreach") || inDept(me, "sales") || inDept(me, "workshop") || (ownerId !== null && ownerId === me.id);
+}
+
+/** Archive/restore: founder or department lead who can also edit the row (guard_archive + institution_upd). */
+export function canArchiveInstitution(me: Me | null, ownerId: string | null): boolean {
+  if (!me || (me.role !== "founder" && me.role !== "dept_lead")) return false;
+  return canEditInstitution(me, ownerId);
+}
+
+/** Correcting an institution's stage is founder-only; stage is otherwise moved by events (guard_institution_stage). */
+export function canCorrectStage(me: Me | null): boolean {
+  return isFounder(me);
+}
+
+/** Contacts: write needs Outreach or Sales, or owning the institution (contact_ins/upd/del). Workshop cannot. */
+export function canManageContacts(me: Me | null, institutionOwnerId: string | null): boolean {
+  if (!me || !canWrite(me)) return false;
+  return inDept(me, "outreach") || inDept(me, "sales") || (institutionOwnerId !== null && institutionOwnerId === me.id);
+}
+
+/** CSV import: write access plus Outreach, Sales or partner (ops.import_institutions). */
+export function canImportInstitutions(me: Me | null): boolean {
+  return canCreateInstitution(me);
+}
+
 /** Can this user mark a deal Won? Founder only (D7; enforced by ops.deal_transition). */
 export function canMarkDealWon(me: Me | null): boolean {
   return isFounder(me);
