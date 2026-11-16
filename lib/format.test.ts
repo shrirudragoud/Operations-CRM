@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatINR, initials } from "./format";
+import { formatDate, formatDateTime, formatINR, formatRange, initials } from "./format";
 
 describe("format", () => {
   it("formats INR with Indian grouping", () => {
@@ -18,5 +18,11 @@ describe("format", () => {
   it("builds initials", () => {
     expect(initials("Shri Rudragoud")).toBe("SR");
     expect(initials("")).toBe("?");
+  });
+
+  it("formats an event range in India time", () => {
+    expect(formatRange(null, null)).toBe("Date not set");
+    expect(formatRange("2026-12-01T04:00:00Z", "2026-12-01T10:00:00Z")).toMatch(/9:30\s?am to 3:30\s?pm/i);
+    expect(formatRange("2026-12-01T04:00:00Z", "2026-12-03T10:00:00Z")).toMatch(/1 Dec 2026.* to 3 Dec 2026/);
   });
 });

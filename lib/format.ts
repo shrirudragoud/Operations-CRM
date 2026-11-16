@@ -26,6 +26,16 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "-" : dateTimeFmt.format(d);
 }
 
+const timeFmt = new Intl.DateTimeFormat("en-IN", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+
+/** "5 Dec 2026, 9:30 am to 3:30 pm" for one day, or both full timestamps across days. */
+export function formatRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start) return "Date not set";
+  if (!end) return formatDateTime(start);
+  if (todayIST(new Date(start)) === todayIST(new Date(end))) return `${formatDateTime(start)} to ${timeFmt.format(new Date(end))}`;
+  return `${formatDateTime(start)} to ${formatDateTime(end)}`;
+}
+
 export function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }

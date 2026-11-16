@@ -69,7 +69,7 @@ Gate: **a real prospect travels visit -> qualified -> deal -> won in the live sy
 pipeline numbers match the records.
 
 ## Phase 1B: Delivery (Workshop, Inventory)
-4. **Workshop:** event calendar + detail, status stepper, trainer picker (only certified/free shown),
+4. **Workshop (DONE, `0017`, not yet applied to hosted):** event calendar + detail, status stepper, trainer picker (only certified/free shown),
    run-sheet checklist, cohort code display/copy.
 5. **Inventory:** items, kits (BOM editor), locations, receive stock, reserve/issue/return dialogs
    (`close_event_returns` form with per-item returned/damaged/lost), stock-by-location, low-stock panel.

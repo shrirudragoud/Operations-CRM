@@ -5,6 +5,7 @@ import { ArchiveIcon, CalendarIcon, HandshakeIcon, MessageSquareIcon } from "luc
 import { z } from "zod";
 import { AccessDenied } from "@/components/access-denied";
 import { DealStageBadge } from "@/components/deal-stage-badge";
+import { EventStatusBadge } from "@/components/event-status-badge";
 import { LoadError } from "@/components/load-error";
 import { LogActivityButton } from "@/components/log-activity-dialog";
 import { NewDealButton } from "@/components/new-deal-dialog";
@@ -24,6 +25,7 @@ import {
 import { getInstitution360, listOwners } from "@/lib/queries/institution";
 import { KIND_LABELS as ACTIVITY_KIND_LABELS, OUTCOME_LABELS, type ActivityKind, type Outcome } from "@/lib/schemas/activity";
 import { DEAL_KIND_LABELS, type DealKind } from "@/lib/schemas/deal";
+import { EVENT_KIND_LABELS, type EventKind } from "@/lib/schemas/event";
 import { KIND_LABELS, type InstitutionKind } from "@/lib/schemas/institution";
 import { createClient } from "@/utils/supabase/server";
 import { ContactsPanel } from "./contacts-panel";
@@ -87,6 +89,7 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
   const canLog = canLogActivity(me) && inst.archived_at === null;
   const canNewDeal = canManageDeals(me) && inst.archived_at === null;
   const seesSales = canAccess(me, "sales");
+  const seesWorkshop = canAccess(me, "workshop");
   const showOwner = me.role !== "partner";
   const owners = canEdit && showOwner ? ((await listOwners(supabase)).data ?? []) : [];
   const archived = inst.archived_at !== null;
@@ -267,11 +270,12 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
               {inst.events.map((ev) => (
                 <Row key={ev.id}>
                   <div className="font-medium">
-                    {ev.title} {ev.archived_at && <Badge variant="outline">Archived</Badge>}
-                    <div className="text-muted-foreground text-sm font-normal">{ev.kind}</div>
+                    {seesWorkshop ? <Link href={`/workshop/${ev.id}`} className="hover:underline">{ev.title}</Link> : ev.title}{" "}
+                    {ev.archived_at && <Badge variant="outline">Archived</Badge>}
+                    <div className="text-muted-foreground text-sm font-normal">{EVENT_KIND_LABELS[ev.kind as EventKind] ?? ev.kind}</div>
                   </div>
-                  <div className="text-sm">
-                    <Badge variant="secondary">{ev.status}</Badge> {ev.starts_at ? formatDateTime(ev.starts_at) : "Date not set"}
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <EventStatusBadge status={ev.status} /> {ev.starts_at ? formatDateTime(ev.starts_at) : "Date not set"}
                   </div>
                 </Row>
               ))}

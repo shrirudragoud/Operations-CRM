@@ -167,6 +167,17 @@ export function canMarkDealWon(me: Me | null): boolean {
   return isFounder(me);
 }
 
+/** Events: create/edit/schedule/run-sheet needs Workshop (event_ins/upd, run_sheet_item_upd, set_event_team). Sales, Training and Community only read. */
+export function canManageEvents(me: Me | null): boolean {
+  return !!me && canWrite(me) && inDept(me, "workshop");
+}
+
+/** Archive/restore a finished event: founder or Workshop lead (guard_archive + event_upd). */
+export function canArchiveEvent(me: Me | null): boolean {
+  if (!me || (me.role !== "founder" && me.role !== "dept_lead")) return false;
+  return canManageEvents(me);
+}
+
 export const ROLE_LABELS: Record<Role, string> = {
   founder: "Founder",
   dept_lead: "Department lead",

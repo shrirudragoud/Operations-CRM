@@ -537,6 +537,7 @@ export type Database = {
           updated_at: string
           archived_at: string | null
           archived_by: string | null
+          cancel_reason: string | null
         }
         Insert: {
           id?: string
@@ -557,6 +558,7 @@ export type Database = {
           updated_at?: string
           archived_at?: string | null
           archived_by?: string | null
+          cancel_reason?: string | null
         }
         Update: {
           id?: string
@@ -577,6 +579,7 @@ export type Database = {
           updated_at?: string
           archived_at?: string | null
           archived_by?: string | null
+          cancel_reason?: string | null
         }
         Relationships: [
           {
@@ -1861,6 +1864,14 @@ export type Database = {
       revoke_invite: {
         Args: {
           p_invite: string
+        }
+        Returns: undefined
+      }
+      set_event_team: {
+        Args: {
+          p_event: string
+          p_lead: string
+          p_assistants: string[]
         }
         Returns: undefined
       }

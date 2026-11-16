@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AccessDenied } from "@/components/access-denied";
+import { FilterLinks } from "@/components/filter-links";
 import { NewDealButton } from "@/components/new-deal-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -14,21 +15,6 @@ import { PartnerScorecard } from "./partners";
 import { Reports } from "./reports";
 
 export const metadata: Metadata = { title: "Sales" };
-
-function FilterLinks<T extends string>({
-  label, current, options, href,
-}: { label: string; current: T; options: { value: T; label: string }[]; href: (value: T) => string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={label}>
-      <span className="text-muted-foreground mr-1 text-sm">{label}</span>
-      {options.map((o) => (
-        <Button key={o.value || "all"} asChild size="sm" variant={current === o.value ? "secondary" : "ghost"}>
-          <Link href={href(o.value)} aria-current={current === o.value ? "true" : undefined}>{o.label}</Link>
-        </Button>
-      ))}
-    </div>
-  );
-}
 
 export default async function SalesPage({
   searchParams,

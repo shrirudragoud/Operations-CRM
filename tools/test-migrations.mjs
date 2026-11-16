@@ -252,6 +252,7 @@ await import('./test-access.mjs').then((m) => m.default({ db, run, ok, bad, msg,
 await import('./test-archive.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O, inst, ev, ev2 }));
 await import('./test-pipeline.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, P, V, O }));
 await import('./test-core.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O, ev, ev2 }));
+await import('./test-workshop.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

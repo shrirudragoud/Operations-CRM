@@ -42,6 +42,10 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | Completing needs actual headcount and all pre/day run-sheet items done | `event_guard` | "Enter actual headcount..." / "Finish all pre-event and event-day run sheet items first" |
 | Completed -> tasks: send_survey (+1d), close_returns (+2d), collect_photos (+3d, community), college_report (+5d); institution -> `workshop_delivered` | `on_event_status` | n/a |
 | Cancelled -> reservations released | `on_event_status` | n/a |
+| Cancelling needs a reason (`cancel_reason`) | `event_guard` | "Say why the event is cancelled" (UI); database: "A cancellation reason is required" |
+| Assistants are conflict-checked like the lead; at most 2 assistants; the team is saved as one set by `set_event_team` (certified lead, refused on completed/cancelled events) | `event_staff_guard`, `set_event_team` | "already booked" / "An event can have at most 2 assistants" |
+| An in-progress event re-checks the lead when its dates or lead change | `event_guard` | "already booked" |
+| Run-sheet `done_by` / `done_at` are stamped by the database (first stamp kept); a cancelled event's run sheet is frozen | `run_sheet_stamp` | n/a |
 
 ## Inventory (stock is a ledger)
 | Rule | Enforced by | Error |

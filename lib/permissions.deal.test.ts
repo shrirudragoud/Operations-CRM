@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canArchiveDeal, canEditDeal, canManageDeals, canMarkDealWon, canMoveDeal, type Me } from "./permissions";
+import { canArchiveDeal, canArchiveEvent, canEditDeal, canManageEvents, canManageDeals, canMarkDealWon, canMoveDeal, type Me } from "./permissions";
 
 const ME_ID = "00000000-0000-4000-8000-000000000001";
 const OTHER_ID = "00000000-0000-4000-8000-000000000002";
@@ -66,5 +66,24 @@ describe("canArchiveDeal / canMarkDealWon", () => {
     expect(canMarkDealWon(me("founder"))).toBe(true);
     expect(canMarkDealWon(me("dept_lead", ["sales"]))).toBe(false);
     expect(canMarkDealWon(me("partner"))).toBe(false);
+  });
+});
+
+describe("events (event_upd, run_sheet_item_upd, set_event_team)", () => {
+  it("lets Workshop writers and the founder manage events", () => {
+    expect(canManageEvents(me("founder"))).toBe(true);
+    expect(canManageEvents(me("member", ["workshop"]))).toBe(true);
+  });
+  it("keeps Sales, Training, Community, viewers and partners read-only", () => {
+    for (const dept of ["sales", "training", "community"] as const) expect(canManageEvents(me("member", [dept]))).toBe(false);
+    expect(canManageEvents(me("viewer", ["workshop"]))).toBe(false);
+    expect(canManageEvents(me("partner"))).toBe(false);
+    expect(canManageEvents(null)).toBe(false);
+  });
+  it("limits archiving to the founder and Workshop leads", () => {
+    expect(canArchiveEvent(me("founder"))).toBe(true);
+    expect(canArchiveEvent(me("dept_lead", ["workshop"]))).toBe(true);
+    expect(canArchiveEvent(me("member", ["workshop"]))).toBe(false);
+    expect(canArchiveEvent(me("dept_lead", ["sales"]))).toBe(false);
   });
 });
