@@ -21,7 +21,7 @@ function invalid(error: z.ZodError): { ok: false; error: string; fieldErrors: Re
   return { ok: false, error: "Check the highlighted fields.", fieldErrors };
 }
 
-async function caller(area?: "outreach"): Promise<{ me: Me } | { ok: false; error: string }> {
+async function caller(area?: "outreach" | "institutions"): Promise<{ me: Me } | { ok: false; error: string }> {
   const c = await actionCaller(area);
   return "error" in c ? { ok: false, error: c.error } : c;
 }
@@ -89,9 +89,9 @@ export async function logActivity(input: unknown): Promise<ActionResult<LoggedAc
 
 export type InstitutionOption = { id: string; name: string; city: string | null; stage: string };
 
-/** Type-ahead for the institution picker. Archived rows are left out; RLS limits a partner to their own. */
+/** Type-ahead for the institution picker (Outreach and Sales). Archived rows are left out; RLS limits a partner to their own. */
 export async function searchInstitutions(q: string): Promise<ActionResult<InstitutionOption[]>> {
-  const c = await caller("outreach");
+  const c = await caller("institutions");
   if ("ok" in c) return c;
   const term = cleanSearch(typeof q === "string" ? q : "");
   const supabase = await createClient();

@@ -95,7 +95,7 @@ test("partner sees only their own-record areas", async ({ page }) => {
   await expect(page).toHaveURL("/");
   expect(await sidebarLabels(page)).toEqual(["My work", "My institutions", "My activities", "My deals"]);
   await page.goto("/sales");
-  await expect(page.getByRole("heading", { name: "Sales" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "My deals" })).toBeVisible();
   await page.goto("/workshop");
   await expect(page.getByText("You don't have access to Workshop")).toBeVisible();
   await page.screenshot({ path: "test-results/phase0-partner.png", fullPage: true });

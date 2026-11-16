@@ -24,6 +24,10 @@ covered by `tools/test-migrations.mjs`. The UI must surface the raised error mes
 | One open deal per type per institution; different types may run in parallel | unique index `deal_one_open_per_kind` | duplicate key value violates `deal_one_open_per_kind` |
 | Won workshop/fdp -> draft event + `trainer_request` (training) + `reserve_kits` (workshop) tasks; institution -> `deal_won`. Won `lab_setup` -> `plan_lab_setup` task. Won `other` -> `plan_other_deal` Sales task only | `on_deal_won` | n/a |
 | `institution.segment` (school / college / other) is derived from `kind`; `v_funnel` and `v_pipeline` report by segment and deal type | generated column + views | n/a |
+| A deal value cannot be negative | `deal_guard` (0016) | "A deal value cannot be negative" |
+| Once Won, only the founder can change a deal's value, type, institution, owner, title, chance or close date | `deal_guard` (0016) | "Only the founder can change a won deal" |
+| Only the founder can change the proposal lines of a Won deal | `deal_line_guard`, `replace_deal_lines` (0016) | "Only the founder can change the lines of a won deal" |
+| Proposal lines are replaced as one atomic set (max 100, description, quantity above zero, price not negative); Sales or the owning partner only | `replace_deal_lines` (security definer, same access check as `deal_upd`) | "You do not have permission to change this deal" / line errors |
 | Community memberships (club / ambassador / other): readable by internal staff, written by Community, deleted by Community lead/founder; unique per institution + kind + name | RLS `community_membership_*` | permission error |
 
 ## Events

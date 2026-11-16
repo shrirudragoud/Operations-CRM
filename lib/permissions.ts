@@ -133,6 +133,35 @@ export function canUpdateTask(me: Me | null, task: { department: Department; ass
   return inDept(me, task.department) || task.assignee_id === me.id;
 }
 
+const OPEN_DEAL = new Set(["meeting", "proposal", "negotiation"]);
+
+/** Deals: create/edit needs Sales, or a partner's own deals (deal_ins / deal_upd). Viewers are read-only. */
+export function canManageDeals(me: Me | null): boolean {
+  if (!me || !canWrite(me)) return false;
+  return me.role === "partner" || inDept(me, "sales");
+}
+
+/** Edit the details (value, probability, close date, lines): open deals; a Won deal is founder-only (ops.deal_guard); Lost must be reopened first. */
+export function canEditDeal(me: Me | null, deal: { stage: string; owner_id: string }): boolean {
+  if (!canManageDeals(me) || !me) return false;
+  if (me.role === "partner" && deal.owner_id !== me.id) return false;
+  if (deal.stage === "won") return isFounder(me);
+  return OPEN_DEAL.has(deal.stage);
+}
+
+/** Move a deal between stages (Won is separate: canMarkDealWon). Nothing leaves Won. */
+export function canMoveDeal(me: Me | null, deal: { stage: string; owner_id: string }): boolean {
+  if (!canManageDeals(me) || !me) return false;
+  if (me.role === "partner" && deal.owner_id !== me.id) return false;
+  return deal.stage !== "won";
+}
+
+/** Archive/restore a finished deal: founder or Sales lead (guard_archive + deal_upd). */
+export function canArchiveDeal(me: Me | null): boolean {
+  if (!me || (me.role !== "founder" && me.role !== "dept_lead")) return false;
+  return inDept(me, "sales") && canWrite(me);
+}
+
 /** Can this user mark a deal Won? Founder only (D7; enforced by ops.deal_transition). */
 export function canMarkDealWon(me: Me | null): boolean {
   return isFounder(me);

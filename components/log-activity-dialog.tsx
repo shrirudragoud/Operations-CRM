@@ -1,21 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { CheckIcon, ChevronsUpDownIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { InstitutionPicker } from "@/components/institution-picker";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { logActivity, searchInstitutions, type InstitutionOption } from "@/lib/actions/activity";
+import { logActivity } from "@/lib/actions/activity";
 import { todayIST } from "@/lib/format";
 import {
   ACTIVITY_KINDS, KIND_LABELS, OUTCOMES, OUTCOME_LABELS, activitySchema, type ActivityInput, type ActivityValues,
@@ -98,7 +97,7 @@ function ActivityForm({
             <Controller
               control={form.control}
               name="institution_id"
-              render={({ field }) => <InstitutionPicker value={field.value} onChange={field.onChange} invalid={!!errors.institution_id} />}
+              render={({ field }) => <InstitutionPicker id="activity-institution" value={field.value} onChange={field.onChange} invalid={!!errors.institution_id} />}
             />
             <FieldError errors={[errors.institution_id]} />
           </Field>
@@ -200,76 +199,5 @@ function ActivityForm({
         <Button type="submit" disabled={isSubmitting}>{isSubmitting && <Spinner />} Log activity</Button>
       </DialogFooter>
     </form>
-  );
-}
-
-function InstitutionPicker({ value, onChange, invalid }: { value: string; onChange: (id: string) => void; invalid: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [term, setTerm] = useState("");
-  const [options, setOptions] = useState<InstitutionOption[]>([]);
-  const [picked, setPicked] = useState<InstitutionOption | null>(null);
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    let stale = false;
-    const timer = setTimeout(async () => {
-      const res = await searchInstitutions(term);
-      if (stale) return;
-      setLoadError(!res.ok);
-      if (res.ok) setOptions(res.data);
-    }, 200);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [term, open]);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id="activity-institution"
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          aria-invalid={invalid}
-          className="w-full justify-between font-normal"
-        >
-          <span className={picked && value ? "" : "text-muted-foreground"}>
-            {picked && value ? picked.name : "Search institutions…"}
-          </span>
-          <ChevronsUpDownIcon aria-hidden className="opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput placeholder="Type a name or city…" value={term} onValueChange={setTerm} />
-          <CommandList>
-            <CommandEmpty>{loadError ? "Couldn't search. Try again." : "No institution found."}</CommandEmpty>
-            <CommandGroup>
-              {options.map((o) => (
-                <CommandItem
-                  key={o.id}
-                  value={o.id}
-                  onSelect={() => {
-                    setPicked(o);
-                    onChange(o.id);
-                    setOpen(false);
-                  }}
-                >
-                  <div className="flex-1">
-                    <div>{o.name}</div>
-                    {o.city && <div className="text-muted-foreground text-xs">{o.city}</div>}
-                  </div>
-                  {o.id === value && <CheckIcon aria-hidden />}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
   );
 }

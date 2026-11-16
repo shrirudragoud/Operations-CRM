@@ -53,7 +53,7 @@ hosted with the Sales PR. **Institutions + contacts + 360 + CSV import: done** (
    date creates the follow-up task; **follow-up queue** (overdue / today / upcoming, mark done);
    **territory list** (by district/segment: untouched, contacted, qualified, last touch); my activity
    history. Qualified -> institution `qualified` + a Workshop deal at *meeting* (DB rule, UI shows it).
-3. **Sales:** kanban pipeline by deal type (Workshop, Faculty training, Lab deal, Other) with a
+3. **Sales (DONE, `0016`):** kanban pipeline by deal type (Workshop, Faculty training, Lab deal, Other) with a
    School/College segment filter; create deal from an institution; deal detail (lines, value, probability,
    expected close, history); move stage with DB rule errors inline; **lost** dialog (reason required);
    founder-only **Mark won** (shows the event/tasks it creates); forecast (value + weighted); funnel and

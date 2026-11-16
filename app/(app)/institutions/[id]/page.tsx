@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import { ArchiveIcon, CalendarIcon, HandshakeIcon, MessageSquareIcon } from "lucide-react";
 import { z } from "zod";
 import { AccessDenied } from "@/components/access-denied";
+import { DealStageBadge } from "@/components/deal-stage-badge";
 import { LoadError } from "@/components/load-error";
 import { LogActivityButton } from "@/components/log-activity-dialog";
+import { NewDealButton } from "@/components/new-deal-dialog";
 import { PageHeader } from "@/components/page-header";
 import { StageBadge } from "@/components/stage-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -17,10 +19,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireArea } from "@/lib/auth";
 import { formatDate, formatDateTime, formatINR } from "@/lib/format";
 import {
-  canArchiveInstitution, canCorrectStage, canEditInstitution, canLogActivity, canManageContacts,
+  canAccess, canArchiveInstitution, canCorrectStage, canEditInstitution, canLogActivity, canManageContacts, canManageDeals,
 } from "@/lib/permissions";
 import { getInstitution360, listOwners } from "@/lib/queries/institution";
 import { KIND_LABELS as ACTIVITY_KIND_LABELS, OUTCOME_LABELS, type ActivityKind, type Outcome } from "@/lib/schemas/activity";
+import { DEAL_KIND_LABELS, type DealKind } from "@/lib/schemas/deal";
 import { KIND_LABELS, type InstitutionKind } from "@/lib/schemas/institution";
 import { createClient } from "@/utils/supabase/server";
 import { ContactsPanel } from "./contacts-panel";
@@ -82,6 +85,8 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
   const canArchive = canArchiveInstitution(me, inst.owner_id);
   const canContacts = canManageContacts(me, inst.owner_id);
   const canLog = canLogActivity(me) && inst.archived_at === null;
+  const canNewDeal = canManageDeals(me) && inst.archived_at === null;
+  const seesSales = canAccess(me, "sales");
   const showOwner = me.role !== "partner";
   const owners = canEdit && showOwner ? ((await listOwners(supabase)).data ?? []) : [];
   const archived = inst.archived_at !== null;
@@ -216,6 +221,11 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
         </TabsContent>
 
         <TabsContent value="deals" className="pt-4">
+          {canNewDeal && (
+            <div className="mb-4">
+              <NewDealButton institution={{ id: inst.id, name: inst.name }} />
+            </div>
+          )}
           {inst.deals.length === 0 ? (
             <ReadOnlyEmpty
               icon={<HandshakeIcon aria-hidden />}
@@ -229,11 +239,12 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
               {inst.deals.map((d) => (
                 <Row key={d.id}>
                   <div className="font-medium">
-                    {d.title} {d.archived_at && <Badge variant="outline">Archived</Badge>}
-                    <div className="text-muted-foreground text-sm font-normal">{d.kind}</div>
+                    {seesSales ? <Link href={`/sales/${d.id}`} className="hover:underline">{d.title}</Link> : d.title}{" "}
+                    {d.archived_at && <Badge variant="outline">Archived</Badge>}
+                    <div className="text-muted-foreground text-sm font-normal">{DEAL_KIND_LABELS[d.kind as DealKind] ?? d.kind}</div>
                   </div>
-                  <div className="text-sm">
-                    <Badge variant="secondary">{d.stage}</Badge> {formatINR(d.value_inr)}
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <DealStageBadge stage={d.stage} /> {formatINR(d.value_inr)}
                     {d.expected_close ? ` · closes ${formatDate(d.expected_close)}` : ""}
                   </div>
                 </Row>

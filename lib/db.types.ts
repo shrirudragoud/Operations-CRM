@@ -424,6 +424,7 @@ export type Database = {
           description: string
           qty: number
           unit_price_inr: number
+          seq: number
         }
         Insert: {
           id?: string
@@ -431,6 +432,7 @@ export type Database = {
           description: string
           qty?: number
           unit_price_inr?: number
+          seq?: number
         }
         Update: {
           id?: string
@@ -438,6 +440,7 @@ export type Database = {
           description?: string
           qty?: number
           unit_price_inr?: number
+          seq?: number
         }
         Relationships: [
           {
@@ -1839,6 +1842,13 @@ export type Database = {
       my_role: {
         Args: never
         Returns: Database["ops"]["Enums"]["app_role"]
+      }
+      replace_deal_lines: {
+        Args: {
+          p_deal: string
+          p_lines: Json
+        }
+        Returns: number
       }
       reserve_kit: {
         Args: {

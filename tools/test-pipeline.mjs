@@ -100,4 +100,36 @@ export default async function pipelineTests(t) {
     const r = await rows(P, `select count(*)::int n from ops.v_territory where id='${T2}'`);
     r[0].n === 0 ? ok('a partner does not see institutions they do not own') : bad('a partner does not see institutions they do not own', JSON.stringify(r));
   }
+  console.log('\nDeal guards (0016)');
+  const G1 = await val(`insert into ops.institution(name,kind,city) values ('Guard College','polytechnic','Pune') returning id`);
+  const gd = await val(`insert into ops.deal(institution_id,kind,title,owner_id,value_inr) values ('${G1}','workshop','Guard deal','${S}',1000) returning id`);
+  await expectErr('a negative deal value is refused on insert', S, `insert into ops.deal(institution_id,kind,title,owner_id,value_inr) values ('${G1}','fdp','Neg','${S}',-1)`, 'cannot be negative');
+  await expectErr('a negative deal value is refused on update', S, `update ops.deal set value_inr = -5 where id='${gd}'`, 'cannot be negative');
+  await expectOk('a sales member can change the value of an open deal', S, `update ops.deal set value_inr = 2500, probability = 60 where id='${gd}'`);
+  await expectOk('replace_deal_lines saves a set of lines', S,
+    `select ops.replace_deal_lines('${gd}', '[{"description":"Kit","qty":10,"unit_price_inr":500},{"description":"Trainer day","qty":1,"unit_price_inr":2000}]'::jsonb)`);
+  await expectVal('both lines are stored', `select count(*) from ops.deal_line where deal_id='${gd}'`, 2);
+  await expectOk('saving again replaces, it does not add', S, `select ops.replace_deal_lines('${gd}', '[{"description":"Kit","qty":5,"unit_price_inr":500}]'::jsonb)`);
+  await expectVal('one line remains', `select count(*) from ops.deal_line where deal_id='${gd}'`, 1);
+  await expectErr('a zero quantity is refused', S, `select ops.replace_deal_lines('${gd}', '[{"description":"x","qty":0,"unit_price_inr":1}]'::jsonb)`, 'quantity above zero');
+  await expectErr('a negative unit price is refused', S, `select ops.replace_deal_lines('${gd}', '[{"description":"x","qty":1,"unit_price_inr":-1}]'::jsonb)`, 'cannot be negative');
+  await expectErr('a blank description is refused', S, `select ops.replace_deal_lines('${gd}', '[{"description":"  ","qty":1,"unit_price_inr":1}]'::jsonb)`, 'needs a description');
+  await expectVal('a refused save leaves the old lines untouched', `select count(*) from ops.deal_line where deal_id='${gd}'`, 1);
+  await expectErr('Workshop (not Sales) cannot save lines', W, `select ops.replace_deal_lines('${gd}', '[]'::jsonb)`, 'permission');
+  await expectErr('a viewer cannot save lines', V, `select ops.replace_deal_lines('${gd}', '[]'::jsonb)`, 'permission');
+  await expectErr('a partner cannot save lines on a deal they do not own', P, `select ops.replace_deal_lines('${gd}', '[]'::jsonb)`, 'permission');
+
+  const pInst = await val(`insert into ops.institution(name,kind,city,owner_id) values ('Guard Partner School','school','Pune','${P}') returning id`);
+  const pd = await val(`insert into ops.deal(institution_id,kind,title,owner_id) values ('${pInst}','workshop','Partner deal','${P}') returning id`);
+  await expectOk('a partner can save lines on their own deal', P, `select ops.replace_deal_lines('${pd}', '[{"description":"Kit","qty":1,"unit_price_inr":100}]'::jsonb)`);
+
+  for (const st of ['proposal', 'negotiation']) await run(S, `update ops.deal set stage='${st}' where id='${gd}'`);
+  await run(F, `update ops.deal set stage='won' where id='${gd}'`);
+  await expectErr('a sales member cannot change the value of a won deal', S, `update ops.deal set value_inr = 99999 where id='${gd}'`, 'Only the founder can change a won deal');
+  await expectErr('nor retitle it', S, `update ops.deal set title = 'Renamed' where id='${gd}'`, 'Only the founder can change a won deal');
+  await expectErr('nor replace its lines', S, `select ops.replace_deal_lines('${gd}', '[]'::jsonb)`, 'Only the founder');
+  await expectErr('nor insert a line directly', S, `insert into ops.deal_line(deal_id, description) values ('${gd}', 'sneaky')`, 'Only the founder');
+  await expectOk('the founder can still correct a won deal', F, `update ops.deal set value_inr = 3000 where id='${gd}'`);
+  await expectOk('the founder can replace the lines of a won deal', F, `select ops.replace_deal_lines('${gd}', '[{"description":"Kit","qty":6,"unit_price_inr":500}]'::jsonb)`);
+  await expectOk('a won deal can still be archived by the founder', F, `update ops.deal set archived_at = now() where id='${gd}'`);
 }
