@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { DateField } from "@/components/date-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -67,7 +68,7 @@ export function DealDetailsForm({
           </Field>
           <Field data-invalid={!!errors.expected_close}>
             <FieldLabel htmlFor="deal-close">Expected close</FieldLabel>
-            <Input id="deal-close" type="date" aria-invalid={!!errors.expected_close} {...form.register("expected_close")} />
+            <Controller control={form.control} name="expected_close" render={({ field }) => <DateField id="deal-close" value={field.value} onChange={field.onChange} invalid={!!errors.expected_close} />} />
             <FieldError errors={[errors.expected_close]} />
           </Field>
         </div>

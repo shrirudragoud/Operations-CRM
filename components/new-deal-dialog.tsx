@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
 import { InstitutionPicker } from "@/components/institution-picker";
+import { DateField } from "@/components/date-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -127,7 +128,7 @@ function DealForm({ institution, onDone }: { institution?: FixedInstitution; onD
           </Field>
           <Field data-invalid={!!errors.expected_close}>
             <FieldLabel htmlFor="deal-close">Expected close</FieldLabel>
-            <Input id="deal-close" type="date" aria-invalid={!!errors.expected_close} {...form.register("expected_close")} />
+            <Controller control={form.control} name="expected_close" render={({ field }) => <DateField id="deal-close" value={field.value} onChange={field.onChange} invalid={!!errors.expected_close} />} />
             <FieldError errors={[errors.expected_close]} />
           </Field>
         </div>

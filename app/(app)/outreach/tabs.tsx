@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OutcomeChip } from "@/components/chips";
 import { CalendarCheckIcon, MapPinIcon, MessageSquareIcon } from "lucide-react";
 import { LoadError } from "@/components/load-error";
 import { Pager } from "@/components/pager";
@@ -12,8 +13,8 @@ import { formatDate, formatDateTime, todayIST } from "@/lib/format";
 import { canUpdateTask, type Me } from "@/lib/permissions";
 import { listActivityHistory, listFollowUps, listTerritory } from "@/lib/queries/outreach";
 import {
-  COLD_AFTER_DAYS, KIND_LABELS, OUTCOME_LABELS, OUTREACH_PAGE_SIZE, outreachQuery,
-  type ActivityKind, type Outcome, type OutreachParams,
+  COLD_AFTER_DAYS, KIND_LABELS, OUTREACH_PAGE_SIZE, outreachQuery,
+  type ActivityKind, type OutreachParams,
 } from "@/lib/schemas/activity";
 import { STAGES, type Stage } from "@/lib/schemas/institution";
 import type { createClient } from "@/utils/supabase/server";
@@ -274,7 +275,7 @@ export async function HistoryTab({ supabase, me, params }: Props & { me: Me }) {
                     <Link className="underline-offset-4 hover:underline" href={`/institutions/${a.institution.id}`}>{a.institution.name}</Link>
                   </>
                 )}
-                {a.outcome && <Badge variant="secondary" className="ml-2">{OUTCOME_LABELS[a.outcome as Outcome] ?? a.outcome}</Badge>}
+                {a.outcome && <OutcomeChip outcome={a.outcome} className="ml-2" />}
               </div>
               {a.notes && <div className="text-muted-foreground line-clamp-2 text-sm">{a.notes}</div>}
               {a.next_step && <div className="text-sm">Next: {a.next_step}{a.next_step_due ? ` (by ${formatDate(a.next_step_due)})` : ""}</div>}

@@ -1,16 +1,8 @@
-import { Badge } from "@/components/ui/badge";
+import { Chip } from "@/components/chips";
 import { DEAL_STAGE_LABELS, type DealStage } from "@/lib/schemas/deal";
+import { DEAL_STAGE_TONE } from "@/lib/tone";
 
-const VARIANT: Record<DealStage, "default" | "secondary" | "outline" | "destructive"> = {
-  meeting: "outline",
-  proposal: "secondary",
-  negotiation: "secondary",
-  won: "default",
-  lost: "destructive",
-};
-
-/** The label carries the meaning, not the colour. */
+/** The label carries the meaning; colour is extra. */
 export function DealStageBadge({ stage }: { stage: string }) {
-  const s = stage as DealStage;
-  return <Badge variant={VARIANT[s] ?? "outline"}>{DEAL_STAGE_LABELS[s] ?? stage}</Badge>;
+  return <Chip tone={DEAL_STAGE_TONE[stage] ?? "slate"}>{DEAL_STAGE_LABELS[stage as DealStage] ?? stage}</Chip>;
 }

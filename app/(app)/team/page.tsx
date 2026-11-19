@@ -47,7 +47,7 @@ export default async function TeamPage() {
   const [staffRes, inviteRes] = await Promise.all([
     supabase
       .from("staff")
-      .select("id, full_name, email, role, departments, is_active, created_at")
+      .select("id, full_name, email, role, departments, is_active, works_from_office, attendance_mode, is_hr, created_at")
       .order("is_active", { ascending: false })
       .order("full_name")
       .range(0, MAX_ROWS - 1),
@@ -105,7 +105,11 @@ export default async function TeamPage() {
                         <Departments role={s.role} departments={s.departments} />
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
-                        {s.is_active ? <Badge variant="outline">Active</Badge> : <Badge variant="destructive">Deactivated</Badge>}
+                        <div className="flex flex-wrap gap-1">
+                          {s.is_active ? <Badge variant="outline">Active</Badge> : <Badge variant="destructive">Deactivated</Badge>}
+                          {s.works_from_office && <Badge variant="secondary">{s.attendance_mode === "remote" ? "Works remotely" : "Works from office"}</Badge>}
+                          {s.is_hr && <Badge variant="secondary">HR</Badge>}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <StaffActions staff={s} isSelf={s.id === me.id} />

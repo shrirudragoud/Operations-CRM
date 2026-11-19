@@ -40,7 +40,7 @@ const MAX_OWNERS = 500;
 export async function listOwners(supabase: Supabase) {
   return supabase
     .from("staff")
-    .select("id, full_name, role")
+    .select("id, full_name, role, departments")
     .eq("is_active", true)
     .order("full_name")
     .range(0, MAX_OWNERS - 1);

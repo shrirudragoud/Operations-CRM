@@ -50,7 +50,7 @@ export function InstitutionPicker({
           <ChevronsUpDownIcon aria-hidden className="opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+      <PopoverContent className="w-(--anchor-width) p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput placeholder="Type a name or city…" value={term} onValueChange={setTerm} />
           <CommandList>

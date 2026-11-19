@@ -28,6 +28,13 @@ export function formatDateTime(value: string | null | undefined): string {
 
 const timeFmt = new Intl.DateTimeFormat("en-IN", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
 
+/** "9:30 am" for a timestamp, in India. */
+export function formatTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "-" : timeFmt.format(d);
+}
+
 /** "5 Dec 2026, 9:30 am to 3:30 pm" for one day, or both full timestamps across days. */
 export function formatRange(start: string | null | undefined, end: string | null | undefined): string {
   if (!start) return "Date not set";

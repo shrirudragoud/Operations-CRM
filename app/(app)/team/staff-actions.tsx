@@ -17,13 +17,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldGroup } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { setAttendanceMode, setWorksFromOffice } from "@/lib/actions/attendance";
+import { setIsHr } from "@/lib/actions/hr";
 import { updateStaffAccess } from "@/lib/actions/team";
 import type { Department, Role } from "@/lib/permissions";
 import { updateAccessSchema, type UpdateAccessInput } from "@/lib/schemas/team";
 import { AccessFields } from "./access-fields";
 
 export type StaffRow = {
-  id: string; full_name: string; email: string; role: Role; departments: Department[]; is_active: boolean;
+  id: string; full_name: string; email: string; role: Role; departments: Department[]; is_active: boolean; works_from_office: boolean; attendance_mode: string; is_hr: boolean;
 };
 
 export function StaffActions({ staff, isSelf }: { staff: StaffRow; isSelf: boolean }) {
@@ -47,6 +49,31 @@ export function StaffActions({ staff, isSelf }: { staff: StaffRow; isSelf: boole
     });
   }
 
+  function toggleOffice() {
+    startTransition(async () => {
+      const res = await setWorksFromOffice({ staff_id: staff.id, works_from_office: !staff.works_from_office });
+      if (!res.ok) toast.error(res.error);
+      else toast.success(staff.works_from_office ? `${staff.full_name} is no longer tracked` : `${staff.full_name} now checks in at the office`);
+    });
+  }
+
+  function toggleMode() {
+    const next = staff.attendance_mode === "remote" ? "office" : "remote";
+    startTransition(async () => {
+      const res = await setAttendanceMode({ staff_id: staff.id, attendance_mode: next });
+      if (!res.ok) toast.error(res.error);
+      else toast.success(next === "remote" ? `${staff.full_name} checks in from anywhere` : `${staff.full_name} checks in on the office network`);
+    });
+  }
+
+  function toggleHr() {
+    startTransition(async () => {
+      const res = await setIsHr({ staff_id: staff.id, is_hr: !staff.is_hr });
+      if (!res.ok) toast.error(res.error);
+      else toast.success(staff.is_hr ? `${staff.full_name} is no longer HR` : `${staff.full_name} is now HR`);
+    });
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -57,6 +84,21 @@ export function StaffActions({ staff, isSelf }: { staff: StaffRow; isSelf: boole
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => setEditOpen(true)}>Edit role and departments</DropdownMenuItem>
+          {staff.role !== "partner" && staff.is_active && (
+            <DropdownMenuItem disabled={pending} onSelect={toggleOffice}>
+              {staff.works_from_office ? "Stop tracking attendance" : "Track attendance"}
+            </DropdownMenuItem>
+          )}
+          {staff.role !== "partner" && staff.is_active && staff.works_from_office && (
+            <DropdownMenuItem disabled={pending} onSelect={toggleMode}>
+              {staff.attendance_mode === "remote" ? "Check in at the office network" : "Check in from anywhere (remote)"}
+            </DropdownMenuItem>
+          )}
+          {staff.role !== "partner" && staff.role !== "viewer" && staff.is_active && (
+            <DropdownMenuItem disabled={pending} onSelect={toggleHr}>
+              {staff.is_hr ? "Remove HR access" : "Make HR"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant={staff.is_active ? "destructive" : "default"}

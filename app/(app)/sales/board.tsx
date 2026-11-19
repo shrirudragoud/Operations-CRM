@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CalendarIcon, CircleAlertIcon } from "lucide-react";
+import { Chip } from "@/components/chips";
 import { LoadError } from "@/components/load-error";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +10,8 @@ import { DEAL_KIND_LABELS, DEAL_STAGE_LABELS, isOverdue, weightedValue, type Dea
 import { listBoard, type BoardDeal } from "@/lib/queries/sales";
 import type { SalesParams } from "@/lib/schemas/deal";
 import { createClient } from "@/utils/supabase/server";
+import { cn } from "cn";
+import { DEAL_STAGE_TONE, TONE_PANEL, TONE_SOLID, TONE_STRIPE } from "@/lib/tone";
 import { DealMoveMenu } from "./deal-move";
 
 const COLUMNS: DealStage[] = ["meeting", "proposal", "negotiation", "won", "lost"];
@@ -20,7 +23,7 @@ function DealCard({ deal, me, showKind }: { deal: BoardDeal; me: Me; showKind: b
   const movable = canMoveDeal(me, { stage: deal.stage, owner_id: deal.owner_id });
   return (
     <li>
-      <Card className="gap-2 py-3">
+      <Card className={cn("gap-2 border-l-4 py-3", TONE_STRIPE[DEAL_STAGE_TONE[stage] ?? "slate"])}>
         <CardContent className="space-y-2 px-3">
           <div>
             <Link href={`/sales/${deal.id}`} className="font-medium hover:underline">{deal.title}</Link>
@@ -29,12 +32,12 @@ function DealCard({ deal, me, showKind }: { deal: BoardDeal; me: Me; showKind: b
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            {showKind && <Badge variant="outline">{DEAL_KIND_LABELS[kind]}</Badge>}
-            <Badge variant="secondary">{deal.institution.segment === "school" ? "School" : deal.institution.segment === "college" ? "College" : "Other"}</Badge>
-            {overdue && <Badge variant="destructive"><CircleAlertIcon aria-hidden /> Overdue</Badge>}
+            {showKind && <Chip tone="violet">{DEAL_KIND_LABELS[kind]}</Chip>}
+            <Chip tone={deal.institution.segment === "school" ? "teal" : deal.institution.segment === "college" ? "blue" : "slate"}>{deal.institution.segment === "school" ? "School" : deal.institution.segment === "college" ? "College" : "Other"}</Chip>
+            {overdue && <Chip tone="red" icon={CircleAlertIcon}>Overdue</Chip>}
           </div>
           <div className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="font-medium">{formatINR(deal.value_inr)}</span>
+            <span className={cn("font-semibold", stage === "won" && "text-emerald-600 dark:text-emerald-400", stage === "lost" && "text-muted-foreground")}>{formatINR(deal.value_inr)}</span>
             {stage !== "won" && stage !== "lost" && deal.probability !== null && (
               <span className="text-muted-foreground text-xs">{deal.probability}% · {formatINR(weightedValue(deal.value_inr, deal.probability))}</span>
             )}
@@ -89,13 +92,16 @@ export async function Board({ me, params }: { me: Me; params: SalesParams }) {
           const col = columns[stage];
           const value = col.deals.reduce((s, d) => s + Number(d.value_inr ?? 0), 0);
           const closed = stage === "won" || stage === "lost";
+          const tone = DEAL_STAGE_TONE[stage] ?? "slate";
           return (
-            <section key={stage} aria-label={DEAL_STAGE_LABELS[stage]} className="bg-muted/40 min-w-0 rounded-lg border p-3">
+            <section key={stage} aria-label={DEAL_STAGE_LABELS[stage]} className={cn("min-w-0 overflow-hidden rounded-lg border", TONE_PANEL[tone])}>
+              <div className={cn("h-1", TONE_SOLID[tone])} />
+              <div className="p-3">
               <header className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="flex items-center gap-2 text-sm font-semibold">
                   {DEAL_STAGE_LABELS[stage]} <Badge variant="outline">{col.total}</Badge>
                 </h2>
-                {stage !== "lost" && <span className="text-muted-foreground text-xs">{formatINR(value)}</span>}
+                {stage !== "lost" && <span className="text-muted-foreground text-xs font-medium">{formatINR(value)}</span>}
               </header>
               {col.deals.length === 0 ? (
                 <p className="text-muted-foreground py-6 text-center text-sm">No deals</p>
@@ -107,6 +113,7 @@ export async function Board({ me, params }: { me: Me; params: SalesParams }) {
               {closed && col.total > col.deals.length && (
                 <p className="text-muted-foreground mt-3 text-xs">Latest {col.deals.length} of {col.total}.</p>
               )}
+              </div>
             </section>
           );
         })}

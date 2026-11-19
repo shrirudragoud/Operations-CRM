@@ -5,6 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
+import { DateField } from "@/components/date-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { InstitutionPicker } from "@/components/institution-picker";
@@ -166,7 +167,7 @@ function ActivityForm({
           )}
           <Field data-invalid={!!errors.happened_on}>
             <FieldLabel htmlFor="activity-date">Date</FieldLabel>
-            <Input id="activity-date" type="date" max={today} aria-invalid={!!errors.happened_on} {...form.register("happened_on")} />
+            <Controller control={form.control} name="happened_on" render={({ field }) => <DateField id="activity-date" value={field.value} onChange={field.onChange} max={today} invalid={!!errors.happened_on} />} />
             <FieldError errors={[errors.happened_on]} />
           </Field>
         </div>
@@ -183,7 +184,7 @@ function ActivityForm({
           </Field>
           <Field data-invalid={!!errors.next_step_due}>
             <FieldLabel htmlFor="activity-due">Due</FieldLabel>
-            <Input id="activity-due" type="date" min={today} aria-invalid={!!errors.next_step_due} {...form.register("next_step_due")} />
+            <Controller control={form.control} name="next_step_due" render={({ field }) => <DateField id="activity-due" value={field.value} onChange={field.onChange} min={today} invalid={!!errors.next_step_due} />} />
             <FieldError errors={[errors.next_step_due]} />
           </Field>
         </div>

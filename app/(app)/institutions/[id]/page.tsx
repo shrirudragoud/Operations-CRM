@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { OutcomeChip } from "@/components/chips";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArchiveIcon, CalendarIcon, HandshakeIcon, MessageSquareIcon } from "lucide-react";
@@ -23,7 +24,7 @@ import {
   canAccess, canArchiveInstitution, canCorrectStage, canEditInstitution, canLogActivity, canManageContacts, canManageDeals,
 } from "@/lib/permissions";
 import { getInstitution360, listOwners } from "@/lib/queries/institution";
-import { KIND_LABELS as ACTIVITY_KIND_LABELS, OUTCOME_LABELS, type ActivityKind, type Outcome } from "@/lib/schemas/activity";
+import { KIND_LABELS as ACTIVITY_KIND_LABELS, type ActivityKind } from "@/lib/schemas/activity";
 import { DEAL_KIND_LABELS, type DealKind } from "@/lib/schemas/deal";
 import { EVENT_KIND_LABELS, type EventKind } from "@/lib/schemas/event";
 import { KIND_LABELS, type InstitutionKind } from "@/lib/schemas/institution";
@@ -207,7 +208,7 @@ export default async function InstitutionPage({ params }: { params: Promise<{ id
                   <div>
                     <div className="font-medium">
                       {ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}
-                      {a.outcome ? <span className="text-muted-foreground font-normal"> · {OUTCOME_LABELS[a.outcome as Outcome] ?? a.outcome}</span> : null}
+                      {a.outcome ? <OutcomeChip outcome={a.outcome} className="ml-2 align-middle" /> : null}
                     </div>
                     {a.notes && <div className="text-muted-foreground line-clamp-2 text-sm">{a.notes}</div>}
                     {a.next_step && (

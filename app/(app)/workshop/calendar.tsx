@@ -3,6 +3,7 @@ import { ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon } from "lucide-react
 import { LoadError } from "@/components/load-error";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { TONE_CHIP } from "@/lib/tone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate, todayIST } from "@/lib/format";
@@ -18,11 +19,11 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MAX_PER_DAY = 3;
 
 const CHIP: Record<EventStatus, string> = {
-  draft: "border-dashed bg-background",
-  scheduled: "bg-primary/10 border-primary/40",
-  in_progress: "bg-primary text-primary-foreground border-primary",
-  completed: "bg-muted text-muted-foreground",
-  cancelled: "bg-muted text-muted-foreground line-through",
+  draft: `${TONE_CHIP.slate} border-dashed`,
+  scheduled: TONE_CHIP.blue,
+  in_progress: TONE_CHIP.amber,
+  completed: TONE_CHIP.green,
+  cancelled: `${TONE_CHIP.red} line-through opacity-70`,
 };
 
 const monthLabel = (month: string) =>
