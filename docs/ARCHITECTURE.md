@@ -22,7 +22,7 @@ path by which external data enters `ops`.
 | Data | Supabase Postgres 17, schema `ops` |
 | Auth | Supabase Auth: Google OAuth + email magic link, invite-only (`ACCESS_MODEL.md`) |
 | Jobs | Edge Functions (Deno) on `pg_cron` schedules |
-| Hosting | Vercel (app) + Supabase (data), region close to ap-south-1 |
+| Hosting | App in a Docker container behind a Cloudflare tunnel (ops.hard-code.in); Supabase for data. The live project is in `ap-northeast-1` (Tokyo, measured 19 Nov 2026: about 160 ms per call); moving to `ap-south-1` is phase 1 of `PLAN_SCALE_PORTAL_TASKS.md` |
 | Types | `npm run gen:types` (from the migrations, via PGlite; CI checks it is fresh) or `supabase gen types typescript --project-id <ref> --schema ops > lib/db.types.ts` (same format) |
 
 ## Repo layout (target)

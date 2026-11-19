@@ -46,7 +46,14 @@ Bootstrap: `supabase/seed_founder.sql` inserts the first founder invite.
 | Trainers, programs, enrollments | all | Training dept; Workshop reads | read | none |
 | Product tables (PostHog, reviews, insights, incidents, catalog, IDE snapshot) | all | Product dept (IDE snapshot also read by Workshop/Community) | read | none |
 | Content | all | Community dept | read | none |
-| Tasks | all | their departments' + assigned to / created by them | same | none |
+| Tasks, task comments, task history | all | read: their departments' + assigned to / created by them; create: any internal role, for anyone; edit details and reassign: manager only (founder, creator, department lead); claim, hand back, accept, move status: assignee or manager; delete: lead / founder | same | none (open: partners can finish follow-ups assigned to them; confirm) |
+| Task watchers, notifications | all | watchers: anyone who can see the task adds themselves or others; remove yourself, managers remove anyone; notifications: only the recipient | same | none |
+| Fixed tasks, saved task views | all | fixed tasks: read by internal roles, written by a founder or the department's lead; views: own, plus shared ones | read only | none |
+| Time entries | all | read: own, a task's managers, founder; write: own for 14 days (internal roles that can write) | none | none |
+| Daily log | all | read: own, a lead of the same department, founder; write: own for 7 days | none | none |
+| Meetings, attendees | all | read: organizer, person asked, invitees, and meetings open to their department or the company; create: any internal role (viewers too); edit / cancel: organizer or a lead of its department; delete: organizer; attendees: organizer / lead invite and remove, each person answers for themselves | create and answer only | none |
+| Calendar view (D45) | no new data: it only reads meetings, events, tasks, activities, deals and content through the policies above, so what you see on someone else's calendar is your own access applied to their assignments | same | same | none |
+| Fixed meetings (series) | all | read: own, invited, or open to them; write: organizer; "whole department": the department's lead | create own | none |
 | Feedback | all | owner department + author | read own dept | none |
 | Staff list | all, edit | read | read | self only |
 | Invites, audit log | founder only | none | none | none |
@@ -83,7 +90,13 @@ are revoked from `authenticated`.
 | --- | --- |
 | My work, Institutions, Tasks, Feedback | all non-partner roles; partner sees a reduced "My institutions / deals" set |
 | Outreach / Sales / Workshop / Inventory / Training / Product / Community | founder, or role with that department in `departments` |
-| Cockpit, Team, Audit log | founder |
+| Team, Audit log | founder |
+| Cockpit | founder (Fundraising and Operations views, low stock, background jobs); department lead (Operations view only, for their own team: people sharing a department plus unowned work in those departments, D60) |
+
+`ops.backlog_snapshot` (0026, the nightly open / overdue / blocked counts) is read by the founder, and by a department
+lead for rows in their departments or for people they lead (`leads_staff`). Nobody can write it by hand; only the
+nightly job does. `ops.v_task_timeliness` is a `security_invoker` view, so each reader sees only the tasks the task
+policy already lets them see.
 Write `lib/permissions.ts` as a pure function `canAccess(me, area)` used by sidebar and route guards, with
 unit tests, and mirror (not replace) the RLS above.
 

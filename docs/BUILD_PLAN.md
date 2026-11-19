@@ -69,8 +69,20 @@ Gate: **a real prospect travels visit -> qualified -> deal -> won in the live sy
 pipeline numbers match the records.
 
 ## Phase 1B: Delivery (Workshop, Inventory)
-4. **Workshop (DONE, `0017`, not yet applied to hosted):** event calendar + detail, status stepper, trainer picker (only certified/free shown),
+4. **Workshop (DONE, `0017`, live on hosted):** event calendar + detail, status stepper, trainer picker (only certified/free shown),
    run-sheet checklist, cohort code display/copy.
+4b. **Tasks collaboration, slices A to D (DONE, `0018` to `0021`, live on hosted since 17 Nov 2026):** assign to anyone internal,
+   start date and deadline, priority, estimate, accept / claim / hand back, subtasks, comments, history; **B** watchers, @mentions,
+   notification bell, fixed (repeating) tasks, Board / Calendar / Timeline / Table with saved views; **C** timer, manual time,
+   weekly timesheet; **D** My day, daily log, team workload for leads. **E** attendance for people tagged "works from
+   office" (**live on hosted 18 Nov 2026, `0023`, shadow mode**; check in and out by the office public IP, hours 11:00 to 17:00
+   with 15 minutes' leeway; D51 to D56; header spike done; still to do: trust the office network, tag people, a week in shadow mode). Email and WhatsApp reminders wait for the cron / Edge Function phase.
+4c. **Calendar and meetings (DONE, `0022`, live on hosted 17 Nov 2026):** `/calendar` with Mine / Team / Everyone, Show (all, meetings,
+   Workshop events), month / week / agenda; schedule a meeting or request one, answer Going / Maybe / Not going, accept / suggest / decline
+   a request; fixed (repeating) meetings at `/calendar/series`; meeting page; My day shows today's meetings. See D38 to D44.
+   **Unified calendar (built 17 Nov 2026, not yet deployed, D45 to D47):** the same page also shows Workshop events you lead, help with or own
+   the institution of (a multi-day workshop is one bar), tasks by due date, outreach, open deals and content; Whose adds "A person"; Show adds
+   Tasks and Outreach/sales/content.
 5. **Inventory:** items, kits (BOM editor), locations, receive stock, reserve/issue/return dialogs
    (`close_event_returns` form with per-item returned/damaged/lost), stock-by-location, low-stock panel.
 Acceptance (selected)
@@ -98,11 +110,15 @@ Gate: a reviewer clears a 15-replay queue in under 45 minutes; one insight linke
 Gate: Workshop assigns trainers only from the certified roster; the weekly community report is generated.
 
 ## Phase 4: Automation and cockpit (about 2 weeks)
-- [ ] `kpi-snapshot`, `low-stock`, notifications (in-app, then email/WhatsApp).
+- [x] `kpi-snapshot`, `low-stock` jobs (0024, live with pg_cron). [ ] Notifications by email/WhatsApp.
 - [ ] Missing rules from `BUSINESS_RULES.md` ("Not yet implemented") decided and shipped with tests.
-- [ ] Founder cockpit with drill-downs; partner scorecards; college report PDF after each event.
+- [x] Founder cockpit with drill-downs (Fundraising and Operations views, 0025; partner scorecards stay on Sales). [ ] Reports: CSV, printable PDF, scheduled email; college report PDF after each event.
 - [ ] Audit log viewer (founder).
 Gate: the fundraising funnel is produced from the cockpit with no spreadsheet.
+
+## Next (proposed 19 Nov 2026): speed, task and meeting logic, employee portal
+Detailed in `PLAN_SCALE_PORTAL_TASKS.md`: measure, move the database to Mumbai, repeating-meeting invites, several assignees and optional
+department on tasks, speed part two, then the employee portal (profile, documents, payroll records).
 
 ## Phase 5: Production hardening (overlaps; finish before launch)
 Everything in `PRODUCTION_STANDARDS.md`: staging, backups/PITR, monitoring, a11y audit, load check on

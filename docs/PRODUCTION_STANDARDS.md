@@ -33,14 +33,14 @@ This is the bar for "done". Check items off per phase; Phase 5 verifies all of t
 
 ## Data protection (India: DPDP Act 2023)
 - [ ] Student data minimised to IDE user id, email, cohort code; no names/phones of minors in `ops`.
-- [ ] Implement `forget_user()` (erase/anonymise IDE-linked rows) and a documented request process.
-- [ ] Retention policy: audit log, replays links, snapshots; purge jobs defined.
+- [x] `forget_ide_user()` (0013) erases/anonymises IDE-linked rows. [ ] Documented request process.
+- [ ] Retention policy: attendance is done (two years, 0024); audit log, replays links, snapshots still to define.
 - [ ] Data-processing notes for vendors (Supabase, PostHog, Vercel) and consent text consistent with the IDE.
 
 ## Reliability and operations
 - [ ] Staging environment mirrors prod; every migration applied to staging first.
 - [ ] Supabase backups verified and **PITR** enabled (paid plan) before real data; restore drill documented.
-- [ ] Jobs idempotent, logged in `ops.job_run`, alert on failure or missing run.
+- [x] Jobs idempotent, logged in `ops.job_run`, overdue shown by `ops.job_health()` (0024). [ ] Alert (email) on failure, once SMTP exists. [x] Schedules applied to hosted (18 Nov 2026).
 - [ ] Monitoring: error tracking (Sentry), uptime check, Supabase log alerts; dashboards for job health.
 - [ ] Runbooks: failed deploy/rollback, failed migration, stuck job, stock reconciliation, lost-access
       recovery (promote founder via SQL editor), incident template (reuse `ops.incident` fields).
@@ -51,7 +51,7 @@ This is the bar for "done". Check items off per phase; Phase 5 verifies all of t
 - [ ] CI: DB rule tests, lint, typecheck, unit tests (permissions, formatters), component tests for forms,
       Playwright e2e for critical paths: login/invite, deal-won -> event, schedule + conflict, issue/return
       kits, review a replay.
-- [ ] Seed script with realistic fake data for demos and load checks (no real PII).
+- [x] Seed script with realistic fake data (`scripts/seed-demo.sh`, local only, no real PII).
 - [ ] Performance: list pages P95 < 500 ms server time at 10k rows; LCP < 2.5 s on 4G; `EXPLAIN` checked
       for indexes; images/fonts optimised; heavy widgets dynamically imported.
 - [ ] Accessibility audit (axe + manual screen-reader pass) on core flows.
