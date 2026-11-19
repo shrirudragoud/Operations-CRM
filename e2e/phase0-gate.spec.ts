@@ -23,7 +23,7 @@ test("founder claims the seeded invite and invites a member and a partner", asyn
   await expect(page).toHaveURL("/");
   await expect(page.getByText("Welcome to Hard-Code Ops")).toBeVisible();
   expect(await sidebarLabels(page)).toEqual([
-    "My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Attendance", "Team workload", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
+    "My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Attendance", "Team workload", "Reports", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
     "Training", "Product", "Community", "People & HR", "Cockpit", "Team", "Audit log",
   ]);
 

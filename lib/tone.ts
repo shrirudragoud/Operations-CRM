@@ -137,6 +137,7 @@ export const AREA_TONE: Record<string, Tone> = {
   tasks: "green",
   timesheet: "amber",
   workload: "teal",
+  reports: "blue",
   feedback: "orange",
   outreach: "violet",
   sales: "blue",

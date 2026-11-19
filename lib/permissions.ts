@@ -31,6 +31,7 @@ export const AREAS = [
   "timesheet",
   "attendance",
   "workload",
+  "reports",
   "feedback",
   "me",
   "hr",
@@ -81,6 +82,8 @@ export function canAccess(me: Me | null, area: Area): boolean {
   // The Cockpit's Operations view shows a lead their own team; Fundraising and the background jobs stay founder-only (page level).
   if (area === "workload" || area === "cockpit") return me.role === "dept_lead";
   if (area === "hr") return isHr(me);
+  // Reports: the founder, department leads and HR; each report is gated again by what it reads (lib/reports.ts#canRunReport).
+  if (area === "reports") return me.role === "dept_lead" || isHr(me);
   if (area === "attendance") return me.role === "dept_lead" || me.works_from_office === true;
   if (SHARED_AREAS.has(area)) return true;
   const dept = AREA_DEPARTMENT[area];

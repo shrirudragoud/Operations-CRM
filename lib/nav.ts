@@ -15,6 +15,7 @@ export const NAV: readonly NavItem[] = [
   { area: "timesheet", href: "/timesheet", label: "Timesheet", group: "Workspace", icon: "clock", phase: 1 },
   { area: "attendance", href: "/attendance", label: "Attendance", group: "Workspace", icon: "map-pin", phase: 1 },
   { area: "workload", href: "/workload", label: "Team workload", group: "Workspace", icon: "users", phase: 1 },
+  { area: "reports", href: "/reports", label: "Reports", group: "Workspace", icon: "chart", phase: 4 },
   { area: "feedback", href: "/feedback", label: "Feedback", group: "Workspace", icon: "message", phase: 2 },
   { area: "outreach", href: "/outreach", label: "Outreach", group: "Departments", icon: "megaphone", phase: 1 },
   { area: "sales", href: "/sales", label: "Sales", group: "Departments", icon: "handshake", phase: 1 },

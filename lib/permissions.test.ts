@@ -194,6 +194,18 @@ describe("employee portal areas", () => {
   });
 });
 
+describe("reports area", () => {
+  const base = { id: "8b3c1d1e-2f4a-4c1e-9a52-0d1f4f9a7b11", full_name: "A B", email: "a@b.c" };
+  it("is for the founder, department leads and HR people only", () => {
+    expect(canAccess({ ...base, role: "founder", departments: [] }, "reports")).toBe(true);
+    expect(canAccess({ ...base, role: "dept_lead", departments: ["sales"] }, "reports")).toBe(true);
+    expect(canAccess({ ...base, role: "member", departments: ["sales"], is_hr: true }, "reports")).toBe(true);
+    expect(canAccess({ ...base, role: "member", departments: ["sales"] }, "reports")).toBe(false);
+    expect(canAccess({ ...base, role: "viewer", departments: ["sales"], is_hr: true }, "reports")).toBe(false);
+    expect(canAccess({ ...base, role: "partner", departments: [] }, "reports")).toBe(false);
+  });
+});
+
 describe("isRemote", () => {
   const base = { id: "8b3c1d1e-2f4a-4c1e-9a52-0d1f4f9a7b11", full_name: "A B", email: "a@b.c", role: "member" as const, departments: ["sales" as const] };
   it("is true only when the mode is remote", () => {
