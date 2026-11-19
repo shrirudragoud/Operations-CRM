@@ -14,7 +14,7 @@ export function AccessDenied({ what }: { what: string }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button asChild variant="outline"><Link href="/">Back to my work</Link></Button>
+        <Button asChild variant="outline"><Link href="/">Back to My day</Link></Button>
       </EmptyContent>
     </Empty>
   );

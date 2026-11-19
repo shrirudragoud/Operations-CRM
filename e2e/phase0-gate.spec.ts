@@ -23,8 +23,8 @@ test("founder claims the seeded invite and invites a member and a partner", asyn
   await expect(page).toHaveURL("/");
   await expect(page.getByText("Welcome to Hard-Code Ops")).toBeVisible();
   expect(await sidebarLabels(page)).toEqual([
-    "My work", "Institutions", "Tasks", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
-    "Training", "Product", "Community", "Cockpit", "Team", "Audit log",
+    "My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Attendance", "Team workload", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
+    "Training", "Product", "Community", "People & HR", "Cockpit", "Team", "Audit log",
   ]);
 
   await page.goto("/team");
@@ -81,7 +81,7 @@ test("the last founder cannot demote or deactivate themselves", async ({ page })
 test("member sees only shared areas plus their department", async ({ page }) => {
   await signInWithMagicLink(page, MEMBER);
   await expect(page).toHaveURL("/");
-  expect(await sidebarLabels(page)).toEqual(["My work", "Institutions", "Tasks", "Feedback", "Sales"]);
+  expect(await sidebarLabels(page)).toEqual(["My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Feedback", "Sales"]);
   await page.goto("/team");
   await expect(page.getByText("You don't have access to team admin")).toBeVisible();
   await page.goto("/inventory");
@@ -93,7 +93,7 @@ test("member sees only shared areas plus their department", async ({ page }) => 
 test("partner sees only their own-record areas", async ({ page }) => {
   await signInWithMagicLink(page, PARTNER);
   await expect(page).toHaveURL("/");
-  expect(await sidebarLabels(page)).toEqual(["My work", "My institutions", "My activities", "My deals"]);
+  expect(await sidebarLabels(page)).toEqual(["My day", "My institutions", "My activities", "My deals"]);
   await page.goto("/sales");
   await expect(page.getByRole("heading", { name: "My deals" })).toBeVisible();
   await page.goto("/workshop");

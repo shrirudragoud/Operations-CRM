@@ -15,7 +15,7 @@ describe("navFor", () => {
     expect(navFor(me("founder"))).toHaveLength(NAV.length);
   });
   it("relabels partner areas as their own records", () => {
-    expect(navFor(me("partner")).map((n) => n.label)).toEqual(["My work", "My institutions", "My activities", "My deals"]);
+    expect(navFor(me("partner")).map((n) => n.label)).toEqual(["My day", "My institutions", "My activities", "My deals"]);
   });
   it("shows a workshop member workshop + inventory but no admin", () => {
     const labels = navFor(me("member", ["workshop"])).map((n) => n.label);

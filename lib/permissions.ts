@@ -17,14 +17,23 @@ export const meSchema = z.object({
   email: z.string(),
   role: z.enum(ROLES),
   departments: z.array(z.enum(DEPARTMENTS)),
+  works_from_office: z.boolean().optional(),
+  is_hr: z.boolean().optional(),
+  attendance_mode: z.enum(["office", "remote"]).optional(),
 });
 export type Me = z.infer<typeof meSchema>;
 
 export const AREAS = [
   "my_work",
+  "calendar",
   "institutions",
   "tasks",
+  "timesheet",
+  "attendance",
+  "workload",
   "feedback",
+  "me",
+  "hr",
   "outreach",
   "sales",
   "workshop",
@@ -38,11 +47,11 @@ export const AREAS = [
 ] as const;
 export type Area = (typeof AREAS)[number];
 
-const FOUNDER_ONLY: ReadonlySet<Area> = new Set(["cockpit", "team", "audit_log"]);
+const FOUNDER_ONLY: ReadonlySet<Area> = new Set(["team", "audit_log"]);
 // Areas a partner may open: their own institutions, activities (Outreach) and deals (Sales).
 const PARTNER_AREAS: ReadonlySet<Area> = new Set(["my_work", "institutions", "outreach", "sales"]);
 // Areas every internal role sees regardless of department.
-const SHARED_AREAS: ReadonlySet<Area> = new Set(["my_work", "institutions", "tasks", "feedback"]);
+const SHARED_AREAS: ReadonlySet<Area> = new Set(["my_work", "calendar", "institutions", "tasks", "timesheet", "feedback", "me"]);
 // Department that unlocks each workspace. Inventory belongs to the Workshop department.
 const AREA_DEPARTMENT: Partial<Record<Area, Department>> = {
   outreach: "outreach",
@@ -58,12 +67,21 @@ export function isFounder(me: Me | null): boolean {
   return me?.role === "founder";
 }
 
+/** Founder or an HR person (ops.can_hr). Viewers and partners are never HR. */
+export function isHr(me: Me | null): boolean {
+  return !!me && me.role !== "viewer" && me.role !== "partner" && (me.role === "founder" || me.is_hr === true);
+}
+
 /** Can this user open the area at all (read)? */
 export function canAccess(me: Me | null, area: Area): boolean {
   if (!me) return false;
   if (me.role === "founder") return true;
   if (FOUNDER_ONLY.has(area)) return false;
   if (me.role === "partner") return PARTNER_AREAS.has(area);
+  // The Cockpit's Operations view shows a lead their own team; Fundraising and the background jobs stay founder-only (page level).
+  if (area === "workload" || area === "cockpit") return me.role === "dept_lead";
+  if (area === "hr") return isHr(me);
+  if (area === "attendance") return me.role === "dept_lead" || me.works_from_office === true;
   if (SHARED_AREAS.has(area)) return true;
   const dept = AREA_DEPARTMENT[area];
   return dept !== undefined && me.departments.includes(dept);
@@ -127,10 +145,97 @@ export function canLogActivity(me: Me | null): boolean {
   return me.role === "partner" || inDept(me, "outreach");
 }
 
+type TaskScope = {
+  department: Department | null;
+  assignee_id: string | null;
+  /** The assignee's departments, when the page has them: a lead of the assignee manages a task with no department. */
+  assignee_departments?: readonly Department[] | null;
+};
+
+function inTaskDepartment(me: Me, task: TaskScope): boolean {
+  return task.department !== null && inDept(me, task.department);
+}
+
+// ops.leads_task_assignee: a department lead whose department the assignee is in (never their own task); the founder sees all.
+function leadsTaskAssignee(me: Me, task: TaskScope): boolean {
+  if (task.department !== null || task.assignee_id === null || task.assignee_id === me.id) return false;
+  if (me.role !== "dept_lead") return false;
+  return !!task.assignee_departments?.some((d) => me.departments.includes(d));
+}
+
 /** Tasks: write needs a department the task belongs to, or being its assignee (task_upd). A partner can only finish their own follow-ups. */
-export function canUpdateTask(me: Me | null, task: { department: Department; assignee_id: string | null }): boolean {
+export function canUpdateTask(me: Me | null, task: TaskScope & { created_by?: string | null }): boolean {
   if (!me || !canWrite(me)) return false;
-  return inDept(me, task.department) || task.assignee_id === me.id;
+  if (task.created_by === me.id) return true;
+  return me.role === "founder" || inTaskDepartment(me, task) || task.assignee_id === me.id || leadsTaskAssignee(me, task);
+}
+
+type TaskRef = TaskScope & {
+  created_by: string | null;
+  completed_by?: string | null;
+};
+
+/** Anyone internal who can write may create a task, in any department, for anyone internal (task_ins). A partner cannot. */
+export function canCreateTask(me: Me | null): boolean {
+  return !!me && canWrite(me) && me.role !== "partner";
+}
+
+/** The "manager" of a task as ops.task_guard sees it: founder, its creator, or a lead of its department. */
+export function canManageTask(me: Me | null, task: TaskRef): boolean {
+  if (!me || !canWrite(me)) return false;
+  if (me.role === "founder" || task.created_by === me.id) return true;
+  if (me.role !== "dept_lead") return false;
+  return (task.department !== null && me.departments.includes(task.department)) || leadsTaskAssignee(me, task);
+}
+
+/** Change the details (title, description, department): managers only. Everyone else uses schedule/comment. */
+export function canEditTaskDetails(me: Me | null, task: TaskRef): boolean {
+  return canManageTask(me, task);
+}
+
+/** Due date, priority, estimate and status: whoever can update the task (task_upd). */
+export function canScheduleTask(me: Me | null, task: TaskRef): boolean {
+  if (!me || !canWrite(me)) return false;
+  return inTaskDepartment(me, task) || task.assignee_id === me.id || task.created_by === me.id || me.role === "founder" || leadsTaskAssignee(me, task);
+}
+
+/** Hand the task to someone else: managers. Others may only claim an unassigned task or decline their own. */
+export function canReassignTask(me: Me | null, task: TaskRef): boolean {
+  return canManageTask(me, task);
+}
+
+export function canClaimTask(me: Me | null, task: TaskRef): boolean {
+  return canScheduleTask(me, task) && task.assignee_id === null && me !== null && me.role !== "partner";
+}
+
+export function canDeclineTask(me: Me | null, task: TaskRef): boolean {
+  return !!me && canWrite(me) && task.assignee_id === me.id && !canManageTask(me, task);
+}
+
+export function canAcceptTask(me: Me | null, task: TaskRef & { accepted_at: string | null }): boolean {
+  return !!me && canWrite(me) && task.assignee_id === me.id && task.accepted_at === null;
+}
+
+/** Reopen a done or cancelled task: managers, or whoever finished it (ops.task_guard). */
+export function canReopenTask(me: Me | null, task: TaskRef): boolean {
+  if (!me || !canWrite(me)) return false;
+  return canManageTask(me, task) || task.completed_by === me.id;
+}
+
+/** Add or remove another person as a watcher: the task's managers (ops.task_manager). Anyone may watch or unwatch themselves. */
+export function canManageWatchers(me: Me | null, task: TaskRef): boolean {
+  return canManageTask(me, task);
+}
+
+/** Fixed (recurring) tasks for a department: the founder, or a lead of that department (task_recurrence policies). */
+export function canManageRecurrence(me: Me | null, dept: Department): boolean {
+  if (!me) return false;
+  return me.role === "founder" || (me.role === "dept_lead" && me.departments.includes(dept));
+}
+
+/** Does this person lead anything (so the Fixed tasks page is worth showing)? */
+export function canSeeFixedTasks(me: Me | null): boolean {
+  return !!me && (me.role === "founder" || me.role === "dept_lead");
 }
 
 const OPEN_DEAL = new Set(["meeting", "proposal", "negotiation"]);
@@ -206,4 +311,85 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
 /** Roles that must have departments (founder = all; partner = none). Mirrors ops.check_access_shape. */
 export function roleNeedsDepartments(role: Role): boolean {
   return role !== "founder" && role !== "partner";
+}
+
+/** Track time (timer, manual entries) and write the daily log: internal people who can write (ops.can_track_time). */
+export function canTrackTime(me: Me | null): boolean {
+  return !!me && me.role !== "viewer" && me.role !== "partner";
+}
+
+/** Check in and out: a tagged internal person (ops.can_attend). Viewers can; partners cannot. */
+/** Tracked people who check in from anywhere instead of an office network (staff.attendance_mode). */
+export function isRemote(me: Me | null): boolean {
+  return !!me && me.attendance_mode === "remote";
+}
+
+export function canCheckIn(me: Me | null): boolean {
+  return !!me && me.role !== "partner" && me.works_from_office === true;
+}
+
+/** See everyone's attendance and decide requests: the founder, or a department lead (ops.leads_staff). */
+export function canSeeTeamAttendance(me: Me | null): boolean {
+  return !!me && (me.role === "founder" || me.role === "dept_lead");
+}
+
+// ---------------------------------------------------------------- calendar and meetings (0022)
+
+type MeetingRef = {
+  organizer_id: string;
+  department: Department | null;
+  status: string;
+  host_id?: string | null;
+  awaiting_id?: string | null;
+  ends_at?: string;
+};
+
+/** Schedule or request a meeting, and set up a fixed one: any internal person, viewers included (meeting_ins). A partner cannot. */
+export function canScheduleMeeting(me: Me | null): boolean {
+  return !!me && me.role !== "partner";
+}
+
+/** The "manager" of a meeting as ops.meeting_manager sees it: its organizer, the founder, or a lead of its department. */
+export function canManageMeeting(me: Me | null, m: MeetingRef): boolean {
+  if (!me || me.role === "partner") return false;
+  if (me.role === "founder" || m.organizer_id === me.id) return true;
+  return me.role === "dept_lead" && m.department !== null && me.departments.includes(m.department);
+}
+
+/** Edit, move, cancel or invite: the managers, while the meeting is open (a cancelled or declined one is frozen). */
+export function canEditMeeting(me: Me | null, m: MeetingRef): boolean {
+  return canManageMeeting(me, m) && (m.status === "scheduled" || m.status === "requested");
+}
+
+/** Open a meeting to a whole department: the founder, or a lead of that department (ops.leads_department). */
+export function canOpenToDepartment(me: Me | null, dept: Department | null): boolean {
+  if (!me || !dept) return false;
+  return me.role === "founder" || (me.role === "dept_lead" && me.departments.includes(dept));
+}
+
+/** Make a meeting visible to everyone: founder only. */
+export function canOpenToCompany(me: Me | null): boolean {
+  return isFounder(me);
+}
+
+/** Answer an invitation (Going, Maybe, Not going): the person invited, while the meeting is scheduled and not over. The organizer cannot decline. */
+export function canRsvp(me: Me | null, m: MeetingRef, attendeeId: string, now: Date = new Date()): boolean {
+  if (!me || me.role === "partner" || me.id !== attendeeId) return false;
+  if (m.status !== "scheduled") return false;
+  return !m.ends_at || new Date(m.ends_at) >= now;
+}
+
+/** Accept, decline or suggest another time: only the person the request waits on (ops.answer_meeting_request). */
+export function canAnswerRequest(me: Me | null, m: MeetingRef): boolean {
+  return !!me && m.status === "requested" && m.awaiting_id === me.id;
+}
+
+/** Fixed meetings: edit, pause or remove by the organizer or the founder (meeting_series_upd / del). */
+export function canManageSeries(me: Me | null, s: { organizer_id: string }): boolean {
+  return !!me && me.role !== "partner" && (me.role === "founder" || s.organizer_id === me.id);
+}
+
+/** Set up a fixed meeting for a whole team: the founder or a lead of that department (ops.meeting_series_guard). */
+export function canSetUpTeamSeries(me: Me | null, dept: Department | null): boolean {
+  return canOpenToDepartment(me, dept);
 }

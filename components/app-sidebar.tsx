@@ -1,11 +1,12 @@
 "use client";
 
+import { AREA_TONE, TONE_TEXT } from "@/lib/tone";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BuildingIcon, CalendarDaysIcon, ChartLineIcon, CheckSquareIcon, GaugeIcon, GraduationCapIcon,
-  HandshakeIcon, HistoryIcon, InboxIcon, MegaphoneIcon, MessageSquareIcon, PackageIcon, ShieldIcon,
-  UsersIcon, type LucideIcon,
+  BuildingIcon, CalendarCheckIcon, CalendarDaysIcon, ChartLineIcon, CheckSquareIcon, ClockIcon, GaugeIcon, GraduationCapIcon,
+  HandshakeIcon, HistoryIcon, InboxIcon, MapPinIcon, MegaphoneIcon, MessageSquareIcon, PackageIcon, ShieldIcon,
+  UserIcon, UsersIcon, type LucideIcon,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
@@ -16,11 +17,11 @@ import { ROLE_LABELS, type Me } from "@/lib/permissions";
 
 const ICONS: Record<string, LucideIcon> = {
   inbox: InboxIcon, building: BuildingIcon, check: CheckSquareIcon, message: MessageSquareIcon,
-  megaphone: MegaphoneIcon, handshake: HandshakeIcon, calendar: CalendarDaysIcon, package: PackageIcon,
+  megaphone: MegaphoneIcon, handshake: HandshakeIcon, calendar: CalendarDaysIcon, "calendar-check": CalendarCheckIcon, package: PackageIcon,
   graduation: GraduationCapIcon, chart: ChartLineIcon, users: UsersIcon, gauge: GaugeIcon,
-  shield: ShieldIcon, history: HistoryIcon,
+  user: UserIcon, shield: ShieldIcon, history: HistoryIcon, clock: ClockIcon, "map-pin": MapPinIcon,
 };
-const GROUPS: NavGroup[] = ["Workspace", "Departments", "Admin"];
+const GROUPS: NavGroup[] = ["Me", "Workspace", "Departments", "Admin"];
 
 export function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
@@ -63,7 +64,7 @@ export function AppSidebar({ me, items }: { me: Me; items: NavItem[] }) {
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
                           <Link href={item.href} aria-current={active ? "page" : undefined}>
-                            <Icon aria-hidden />
+                            <Icon aria-hidden className={TONE_TEXT[AREA_TONE[item.area] ?? "slate"]} />
                             <span>{item.label}</span>
                           </Link>
                         </SidebarMenuButton>
