@@ -3,6 +3,14 @@
 # Production: https://ops.hard-code.in is an ingress rule on the host's `hardcode-prod` Cloudflare tunnel
 # (~/.cloudflared/config.yml, systemd user service cloudflared.service) pointing at 127.0.0.1:3400.
 # The `tunnel` profile below is only for a throwaway trycloudflare.com URL on a machine without that tunnel.
+# The office internet path silently drops packets of 1492 bytes or more (measured 19 Nov 2026), which made every new
+# TLS connection to Cloudflare-hosted services (Supabase included) stall for about 3.3 s. A bridge MTU of 1400 keeps
+# the container's packets small enough to pass. Remove it only after the router's MTU / MSS clamping is fixed.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"
+
 services:
   app:
     build:
@@ -18,6 +26,8 @@ services:
     environment:
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+      # Set OPS_TIMING=1 to log one line per Supabase call and per page (scripts/timing-report.mjs summarises them).
+      OPS_TIMING: ${OPS_TIMING:-}
 
   tunnel:
     profiles: ["tunnel"]

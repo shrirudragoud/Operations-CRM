@@ -29,6 +29,8 @@ const nextConfig: NextConfig = {
   // partial prefetching are off on purpose (docs/DECISIONS.md D13).
   cacheComponents: false,
   poweredByHeader: false,
+  // Document uploads (HR papers, policies) arrive through Server Actions: up to 10 MB plus the form fields.
+  experimental: { serverActions: { bodySizeLimit: "11mb" } },
   turbopack: {
     rules: {
       "*.css": {

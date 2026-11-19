@@ -32,7 +32,7 @@ export default defineConfig({
   webServer: {
     command: `${env} npx next build && ${env} npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}/login`,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.E2E_REUSE === "1",
     timeout: 180_000,
   },
 });
