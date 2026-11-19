@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { createPasswordUser, resetDatabase, signInWithPassword, sql } from "./helpers";
+import { createPasswordUser, pickDate, resetDatabase, signInWithPassword, sql } from "./helpers";
 
 // Outreach workspace on the LOCAL stack only (see playwright.config.ts). All names start with "ZZ".
 const PASSWORD = "correct-horse-battery";
@@ -51,7 +51,7 @@ test("a qualified visit opens a deal, creates a follow-up, and the follow-up can
   await expect(page.getByText("opens a Workshop deal at Meeting")).toBeVisible();
   await page.getByLabel("Notes").fill("ZZ met the principal");
   await page.getByLabel("Next step").fill("ZZ send proposal");
-  await page.getByLabel("Due").fill(tomorrow());
+  await pickDate(page, "Due", tomorrow());
   await page.getByRole("dialog").getByRole("button", { name: "Log activity" }).click();
   await expect(page.getByText("Activity logged")).toBeVisible();
 
@@ -123,7 +123,7 @@ test("a partner logs only for their own institution and sees only their own acti
   await page.getByRole("option", { name: "ZZ Partner School" }).click();
   await page.getByLabel("Notes").fill("ZZ partner visit");
   await page.getByLabel("Next step").fill("ZZ partner follow-up");
-  await page.getByLabel("Due").fill(tomorrow());
+  await pickDate(page, "Due", tomorrow());
   await page.getByRole("dialog").getByRole("button", { name: "Log activity" }).click();
   await expect(page.getByText("Activity logged")).toBeVisible();
 

@@ -31,7 +31,12 @@ test("founder creates, edits, archives and restores an institution", async ({ br
 
   await page.getByRole("link", { name: "New institution" }).first().click();
   // Choosing a kind needs hydrated JS, so do it first; typing earlier would be wiped by hydration.
-  await page.getByRole("combobox", { name: "Kind" }).click();
+  // A click before hydration does nothing, so retry until the list opens.
+  await expect(async () => {
+    await page.keyboard.press("Escape");
+    await page.getByRole("combobox", { name: "Kind" }).click();
+    await expect(page.getByRole("option", { name: "Engineering college" })).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 15_000 });
   await page.getByRole("option", { name: "Engineering college" }).click();
   await page.getByLabel("Name").fill("ZZ Test College");
   await page.getByLabel("City").fill("Pune");
@@ -60,6 +65,7 @@ test("founder creates, edits, archives and restores an institution", async ({ br
   await page.getByRole("button", { name: "Archive" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Archive" }).click();
   await expect(page.getByText("This institution is archived")).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toBeHidden();
   expect(sql("select count(*) from ops.institution where archived_at is not null")).toBe("1");
 
   await page.getByRole("button", { name: "Restore" }).click();

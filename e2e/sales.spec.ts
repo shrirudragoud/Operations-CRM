@@ -63,10 +63,12 @@ test("the founder opens a deal and takes it from meeting to won, which creates a
   await page.getByRole("dialog").getByRole("button", { name: "Move" }).click();
   await expect(page.getByText("Moved to Proposal")).toBeVisible();
   await expect.poll(() => one("select stage from ops.deal where title = 'Workshop - ZZ Won College'")).toBe("proposal");
+  await expect(page.getByRole("dialog")).toBeHidden();
 
   await moveTo(page, "Workshop - ZZ Won College", "Negotiation");
   await page.getByRole("dialog").getByRole("button", { name: "Move" }).click();
   await expect.poll(() => one("select stage from ops.deal where title = 'Workshop - ZZ Won College'")).toBe("negotiation");
+  await expect(page.getByRole("dialog")).toBeHidden();
 
   await moveTo(page, "Workshop - ZZ Won College", "Mark won");
   await expect(page.getByText("Winning is final and cannot be undone.")).toBeVisible();
