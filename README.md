@@ -15,6 +15,9 @@ Internal operations CRM for Hard-Code. **Start with `CLAUDE.md` and `docs/HANDOF
 | `docs/BUILD_PLAN.md` | Phases, tasks, acceptance, shadcn setup |
 | `docs/PRODUCTION_STANDARDS.md` | Definition of Done and launch checklist |
 | `docs/DECISIONS.md` | Decisions and open questions |
+| `docs/loop/STRATEGY.md` | Product evolution loop: why (the moat) |
+| `docs/loop/IMPLEMENTATION_PLAN.md` | Product evolution loop: what gets added, phases |
+| `docs/loop/OPEN_QUESTIONS.md` | Ask the founder before coding any loop item |
 
 ## Database
 

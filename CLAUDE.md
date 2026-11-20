@@ -6,6 +6,10 @@ in India). One Supabase database, one Next.js app, six department workspaces on 
 **Read first, in order:** `docs/HANDOFF.md` (state + next steps) -> `docs/PRODUCT_OVERVIEW.md` ->
 `docs/BUILD_PLAN.md`. Everything else is reference.
 
+**Product evolution loop** (sessions, class sign-in, items to the field): `docs/loop/STRATEGY.md` and
+`docs/loop/IMPLEMENTATION_PLAN.md`. **Before coding any of it, ask the founder the related questions in
+`docs/loop/OPEN_QUESTIONS.md` and wait for answers.**
+
 ## Non-negotiables
 1. **Business rules live in the database** (triggers, RPCs, RLS), never only in UI code.
    See `docs/BUSINESS_RULES.md`. The UI calls them and shows their error messages.
