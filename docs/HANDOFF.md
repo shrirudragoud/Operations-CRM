@@ -12,6 +12,10 @@ Last updated: 16 Nov 2026. Owner/founder: Shri (Hard-Code / Idea-Labs).
 | Edge Functions / cron jobs | Not written (specs in `docs/INTEGRATIONS.md`) |
 | CI | `.github/workflows/ci.yml` runs the database tests on every push/PR |
 
+## Product evolution loop (added 21 Nov 2026)
+Planned on top of BUILD_PLAN Phase 0-1: `docs/loop/`. Nothing built yet. Loop phases B-E are **blocked on the
+founder's answers** in `docs/loop/OPEN_QUESTIONS.md`; ask before coding.
+
 ## Do these first, in order
 1. **Apply the database.** Supabase dashboard (the new ops project) -> SQL Editor -> run
    `supabase/all_migrations.sql`. Then Settings -> Data API -> **Exposed schemas** -> add `ops`.
