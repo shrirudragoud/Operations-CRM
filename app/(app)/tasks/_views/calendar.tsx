@@ -3,9 +3,10 @@ import { ChevronLeftIcon, ChevronRightIcon, CircleAlertIcon } from "lucide-react
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { formatDate, todayIST } from "@/lib/format";
-import type { TaskRow } from "@/lib/queries/tasks";
+import type { TaskRowRolled } from "@/lib/queries/tasks";
 import { TASK_STATUS_LABELS, type TaskStatus } from "@/lib/schemas/activity";
 import { formatSpan, type TaskParams } from "@/lib/schemas/task";
+import { clusterCopies } from "@/lib/task-groups";
 import { calendarMonth, mondayOf, monthWeeks, shiftMonth, tasksByDay } from "@/lib/task-layout";
 import { chipClass, healthNote } from "./chip";
 
@@ -15,19 +16,24 @@ const MAX_PER_DAY = 3;
 const monthLabel = (month: string) =>
   new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
 
-function Chip({ t }: { t: TaskRow }) {
-  const label = `${t.title}. ${TASK_STATUS_LABELS[t.status as TaskStatus] ?? t.status}, ${t.assignee?.full_name ?? "unassigned"}, ${formatSpan(t.start_date, t.due_date, t.due_time)}.${healthNote(t)}`;
+function Chip({ t, people }: { t: TaskRowRolled; people: number }) {
+  const who = people > 1 ? `given to ${people} people` : (t.assignee?.full_name ?? "unassigned");
+  const label = `${t.title}. ${TASK_STATUS_LABELS[t.status as TaskStatus] ?? t.status}, ${who}, ${formatSpan(t.start_date, t.due_date, t.due_time)}.${healthNote(t)}`;
   return (
     <Link href={`/tasks/${t.id}`} aria-label={label} title={label} className={`block truncate rounded border px-1.5 py-0.5 text-xs hover:underline ${chipClass(t)}`}>
-      {t.title}
+      {t.title}{people > 1 ? ` · ${people} people` : ""}
     </Link>
   );
 }
 
-export function TaskCalendar({ tasks, params, link }: { tasks: TaskRow[]; params: TaskParams; link: (p: Partial<TaskParams>) => string }) {
+export function TaskCalendar({ tasks: all, params, link }: { tasks: TaskRowRolled[]; params: TaskParams; link: (p: Partial<TaskParams>) => string }) {
   const today = todayIST();
   const month = calendarMonth(params.at, today);
   const weeks = monthWeeks(month);
+  // Copies of one task given to several people share their dates: one chip, not one per person.
+  const clusters = clusterCopies(all);
+  const sizes = new Map(clusters.map((c) => [c.lead.id, c.copies.length]));
+  const tasks = clusters.map((c) => c.lead);
   const byDay = tasksByDay(tasks, weeks.flat());
   const undated = tasks.filter((t) => !t.start_date && !t.due_date);
 
@@ -63,7 +69,7 @@ export function TaskCalendar({ tasks, params, link }: { tasks: TaskRow[]; params
                     <div className={`text-xs ${day === today ? "bg-primary text-primary-foreground inline-flex size-5 items-center justify-center rounded-full font-semibold" : ""}`}>
                       {Number(day.slice(8))}
                     </div>
-                    {shown.map((t) => <Chip key={t.id} t={t} />)}
+                    {shown.map((t) => <Chip key={t.id} t={t} people={sizes.get(t.id) ?? 1} />)}
                     {hidden > 0 && (
                       <Link href={link({ layout: "timeline", at: mondayOf(day) })} className="text-muted-foreground block text-xs underline">
                         +{hidden} more (see the timeline)

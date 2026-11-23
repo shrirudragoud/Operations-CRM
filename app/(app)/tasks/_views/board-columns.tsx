@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useOptimistic, useState, useTransition, type DragEvent, type ReactNode } from "react";
 import { toast } from "sonner";
+import { Progress, ProgressIndicator, ProgressTrack } from "@ui-sdk/react/progress";
 import { ClockIcon, ListChecksIcon, MessageSquareIcon, EyeIcon } from "lucide-react";
 import { cn } from "cn";
 import { DepartmentChip, HealthChip, PriorityChip, STATUS_ICON } from "@/components/chips";
+import { AvatarStack } from "@/components/tasks/avatar-stack";
+import { SubtaskPeek } from "@/components/tasks/subtask-peek";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,11 +16,25 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import { changeTaskStatus } from "@/lib/actions/task";
 import { initials } from "@/lib/format";
+import type { SubPreview } from "@/lib/queries/tasks";
 import { TASK_STATUS_LABELS, type TaskStatus } from "@/lib/schemas/activity";
 import { allowedTaskMoves, formatMinutes } from "@/lib/schemas/task";
 import { PRIORITY_TONE, TASK_STATUS_TONE, TONE_PANEL, TONE_SOLID, TONE_STRIPE } from "@/lib/tone";
 import type { Health } from "@/lib/task-health";
 import { BoardMove } from "./board-move";
+
+function DoneBar({ done, total, label, text }: { done: number; total: number; label: string; text: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Progress value={Math.round((done / total) * 100)} aria-label={label} className="min-w-0 flex-1">
+        <ProgressTrack className="bg-muted h-1.5 overflow-hidden rounded-full">
+          <ProgressIndicator className="h-full rounded-full bg-emerald-500" />
+        </ProgressTrack>
+      </Progress>
+      <span className="text-muted-foreground text-xs tabular-nums">{text}</span>
+    </div>
+  );
+}
 
 export type BoardCard = {
   id: string;
@@ -31,8 +48,17 @@ export type BoardCard = {
   hasDates: boolean;
   estimate: number | null;
   movable: boolean;
+  /** Set on a subtask whose parent the viewer can read. */
+  parent: { id: string; title: string } | null;
+  /** Several copies of one task given to different people, folded into this card. */
+  group: { people: string[]; done: number; total: number } | null;
+  /** The viewer sees one copy of a task given to several people. progress is the whole group's count when it is known. */
+  shared: { progress: { done: number; total: number } | null } | null;
+  /** One task owned by several people: their names. */
+  coOwners: string[] | null;
   subOpen: number;
   subTotal: number;
+  subs: SubPreview[];
   watchers: number;
   comments: number;
   logged: number;
@@ -121,6 +147,7 @@ function Card({ card: c, dragging, onDragStart, onDragEnd, onMove }: {
 }) {
   const finished = c.status === "done" || c.status === "cancelled";
   const over = c.estimate !== null && c.logged > c.estimate;
+  const subWhy = c.health.reasons.filter((r) => /^\d+ subtasks? (overdue|blocked)$/.test(r));
   return (
     <li
       draggable={c.movable}
@@ -139,22 +166,47 @@ function Card({ card: c, dragging, onDragStart, onDragEnd, onMove }: {
         <Link href={`/tasks/${c.id}`} draggable={false} className={cn("text-sm leading-snug font-medium underline-offset-4 hover:underline", c.status === "cancelled" && "line-through")}>{c.title}</Link>
         {c.movable && <BoardMove title={c.title} status={c.status} onMove={onMove} />}
       </div>
+      {c.parent && (
+        <p className="text-muted-foreground -mt-1 truncate text-xs">
+          Part of <Link href={`/tasks/${c.parent.id}`} draggable={false} className="underline-offset-4 hover:underline">{c.parent.title}</Link>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <PriorityChip priority={c.priority} />
         {c.health.key !== "finished" && c.health.key !== "no_date" && <HealthChip health={c.health} />}
         {c.hasDates && <span className="text-muted-foreground text-xs">{c.span}</span>}
         <DepartmentChip department={c.department} />
+        {c.coOwners && (
+          <Badge variant="outline" title="One task owned by several people. Whoever finishes it finishes it for all.">
+            Shared task
+          </Badge>
+        )}
+        {c.shared && (
+          <Badge variant="outline" title="Given to several people. Each finishes their own copy.">
+            Shared{c.shared.progress ? ` · ${c.shared.progress.done} of ${c.shared.progress.total} done` : ""}
+          </Badge>
+        )}
       </div>
-      {c.subTotal > 0 && (
-        <div className="flex items-center gap-2" aria-label={`${c.subTotal - c.subOpen} of ${c.subTotal} subtasks done`}>
-          <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(((c.subTotal - c.subOpen) / c.subTotal) * 100)}%` }} />
-          </div>
-          <span className="text-muted-foreground text-xs tabular-nums">{c.subTotal - c.subOpen}/{c.subTotal}</span>
-        </div>
+      {subWhy.length > 0 && <p className="text-xs font-medium text-red-600 dark:text-red-400">{subWhy.join(", ")}</p>}
+      {c.group && c.group.total > 0 && (
+        <DoneBar done={c.group.done} total={c.group.total} label={`${c.group.done} of ${c.group.total} people done`} text={`${c.group.done} of ${c.group.total} done`} />
       )}
+      {c.subTotal > 0 && (
+        <DoneBar done={c.subTotal - c.subOpen} total={c.subTotal} label={`${c.subTotal - c.subOpen} of ${c.subTotal} subtasks done`} text={`${c.subTotal - c.subOpen}/${c.subTotal}`} />
+      )}
+      {c.subs.length > 0 && <SubtaskPeek title={c.title} subs={c.subs} />}
       <div className="text-muted-foreground flex items-center gap-2 text-xs">
-        {c.assignee ? (
+        {c.group ? (
+          <Link href={`/tasks/${c.id}`} draggable={false} className="flex min-w-0 items-center gap-1.5 underline-offset-4 hover:underline">
+            <AvatarStack names={c.group.people} />
+            <span className="truncate">Given to {c.group.people.length} people</span>
+          </Link>
+        ) : c.coOwners && c.coOwners.length > 1 ? (
+          <Link href={`/tasks/${c.id}`} draggable={false} className="flex min-w-0 items-center gap-1.5 underline-offset-4 hover:underline">
+            <AvatarStack names={c.coOwners} />
+            <span className="truncate">{c.coOwners.length} owners</span>
+          </Link>
+        ) : c.assignee ? (
           <span className="flex min-w-0 items-center gap-1.5">
             <Avatar size="sm"><AvatarFallback className="text-[10px]">{initials(c.assignee)}</AvatarFallback></Avatar>
             <span className="truncate">{c.assignee.split(" ")[0]}</span>

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BuildingIcon, CalendarCheckIcon, CalendarDaysIcon, ChartLineIcon, CheckSquareIcon, ClockIcon, GaugeIcon, GraduationCapIcon,
   HandshakeIcon, HistoryIcon, InboxIcon, MapPinIcon, MegaphoneIcon, MessageSquareIcon, PackageIcon, ShieldIcon,
-  UserIcon, UsersIcon, type LucideIcon,
+  SparklesIcon, UserIcon, UsersIcon, type LucideIcon,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
@@ -19,7 +19,7 @@ const ICONS: Record<string, LucideIcon> = {
   inbox: InboxIcon, building: BuildingIcon, check: CheckSquareIcon, message: MessageSquareIcon,
   megaphone: MegaphoneIcon, handshake: HandshakeIcon, calendar: CalendarDaysIcon, "calendar-check": CalendarCheckIcon, package: PackageIcon,
   graduation: GraduationCapIcon, chart: ChartLineIcon, users: UsersIcon, gauge: GaugeIcon,
-  user: UserIcon, shield: ShieldIcon, history: HistoryIcon, clock: ClockIcon, "map-pin": MapPinIcon,
+  user: UserIcon, sparkles: SparklesIcon, shield: ShieldIcon, history: HistoryIcon, clock: ClockIcon, "map-pin": MapPinIcon,
 };
 const GROUPS: NavGroup[] = ["Me", "Workspace", "Departments", "Admin"];
 

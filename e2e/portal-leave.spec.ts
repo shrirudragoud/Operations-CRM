@@ -105,6 +105,7 @@ test("HR changes the leave policy and adds a holiday", async ({ browser }) => {
   await hr.getByLabel("Most days that carry over").fill("2");
   await hr.getByRole("button", { name: "Save" }).click();
   await expect(hr.getByRole("row").filter({ hasText: "ZZ Study leave" }).getByText(/5 days a year, carries over up to 2 days/)).toBeVisible();
+  await expect(hr.getByRole("dialog")).toBeHidden();
 
   await pickDate(hr, "Day", futureWednesday());
   await hr.locator("#hol-name").fill("ZZ Founders day");

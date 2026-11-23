@@ -8,6 +8,7 @@ export type NavItem = { area: Area; href: string; label: string; group: NavGroup
 // `phase` = docs/BUILD_PLAN.md phase that delivers the screen (placeholders show it).
 export const NAV: readonly NavItem[] = [
   { area: "me", href: "/me", label: "My space", group: "Me", icon: "user", phase: 5 },
+  { area: "assistant", href: "/assistant", label: "Assistant", group: "Me", icon: "sparkles", phase: 0 },
   { area: "my_work", href: "/", label: "My day", group: "Workspace", icon: "inbox", phase: 0 },
   { area: "calendar", href: "/calendar", label: "Calendar", group: "Workspace", icon: "calendar-check", phase: 1 },
   { area: "institutions", href: "/institutions", label: "Institutions", group: "Workspace", icon: "building", phase: 1 },

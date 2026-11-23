@@ -7207,3 +7207,1740 @@ end $$;
 
 revoke execute on all functions in schema ops from public;
 grant execute on function ops.directory(), ops.directory_events(int) to authenticated, service_role;
+-- Files on HR requests, in both directions (builds on 0033 documents and 0034 requests).
+-- 1. ops.hr_request_file: up to 5 files per message (or on the request itself), kept in the private hr-docs bucket
+--    in the requester's own folder, so the storage rules from 0033 already decide who can read them.
+-- 2. create_hr_request / add_hr_request_message take the files and write message + files in one transaction.
+-- 3. Notifications: HR replies tell the person; the person's requests and replies tell HR. Internal notes tell nobody.
+-- 4. HR can keep a copy of a reply's file on the person's record (new document kind 'letter', already verified).
+-- 5. ops.open_request_file: the only way to open one; an HR open is written to hr_access_log first.
+
+-- ---------------------------------------------------------------- a 'letter' document kind
+alter table ops.staff_document drop constraint staff_document_kind_check;
+alter table ops.staff_document add constraint staff_document_kind_check check (kind in (
+  'id_proof', 'address_proof', 'education', 'certificate', 'offer_letter', 'contract', 'payslip', 'letter', 'other'));
+
+-- ---------------------------------------------------------------- notifications about requests
+alter table ops.notification add column request_id uuid references ops.hr_request (id) on delete cascade;
+create index notification_request_idx on ops.notification (request_id);
+
+-- Keep every kind the constraint already allows (0037 adds one) and add the three request kinds.
+do $$
+declare v_def text; v_kinds text[]; k text;
+begin
+  select pg_get_constraintdef(c.oid) into v_def
+    from pg_constraint c where c.conrelid = 'ops.notification'::regclass and c.conname = 'notification_kind_check';
+  select coalesce(array_agg(distinct g[1]), '{}') into v_kinds from regexp_matches(v_def, '''([a-z_]+)''', 'g') as m(g);
+  foreach k in array array['request_new', 'request_person_reply', 'request_hr_reply'] loop
+    if not (k = any (v_kinds)) then v_kinds := array_append(v_kinds, k); end if;
+  end loop;
+  alter table ops.notification drop constraint notification_kind_check;
+  execute format('alter table ops.notification add constraint notification_kind_check check (kind in (%s))',
+                 (select string_agg(quote_literal(x), ', ' order by x) from unnest(v_kinds) x));
+end $$;
+
+create or replace function ops.notification_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if auth.uid() is not null then
+    new.recipient_id := old.recipient_id;
+    new.kind := old.kind;
+    new.task_id := old.task_id;
+    new.meeting_id := old.meeting_id;
+    new.request_id := old.request_id;
+    new.actor_id := old.actor_id;
+    new.message := old.message;
+    new.dedupe_key := old.dedupe_key;
+    new.created_at := old.created_at;
+    new.read_at := coalesce(old.read_at, new.read_at);
+  end if;
+  return new;
+end $$;
+
+-- ---------------------------------------------------------------- files
+create table ops.hr_request_file (
+  id          uuid primary key default gen_random_uuid(),
+  request_id  uuid not null references ops.hr_request (id) on delete cascade,
+  message_id  bigint references ops.hr_request_message (id) on delete cascade,
+  staff_id    uuid not null references ops.staff (id) on delete cascade,
+  uploaded_by uuid references ops.staff (id) on delete set null,
+  name        text not null check (char_length(btrim(name)) between 1 and 120),
+  path        text not null unique check (path ~ '^[0-9a-f-]{36}/[0-9a-f-]{36}-[A-Za-z0-9._-]{1,80}$' and left(path, 36) = staff_id::text),
+  mime        text not null check (mime in ('application/pdf', 'image/jpeg', 'image/png', 'image/webp')),
+  size_bytes  int not null check (size_bytes between 1 and 10485760),
+  created_at  timestamptz not null default now()
+);
+create index hr_request_file_request_idx on ops.hr_request_file (request_id, created_at);
+create index hr_request_file_message_idx on ops.hr_request_file (message_id);
+create index hr_request_file_staff_idx on ops.hr_request_file (staff_id);
+create index hr_request_file_uploader_idx on ops.hr_request_file (uploaded_by);
+
+-- Written only by the RPCs below. Files never go on internal notes, so the person may see every file on their request.
+alter table ops.hr_request_file enable row level security;
+create policy hr_request_file_sel on ops.hr_request_file for select to authenticated
+  using (staff_id = (select auth.uid()) or (select ops.can_hr()));
+
+-- ---------------------------------------------------------------- storage: a file tied to a request is never deleted
+create or replace function ops.hr_doc_object_ok(p_name text, p_mode text) returns boolean
+language plpgsql stable security definer set search_path = '' as $$
+declare v_folder text := split_part(p_name, '/', 1);
+begin
+  if auth.uid() is null or p_name is null then return false; end if;
+
+  if v_folder = 'company' then
+    if p_mode = 'read' then
+      return exists (select 1 from ops.company_document c
+                      where c.path = p_name and ops.company_doc_visible(c.audience, c.is_active));
+    end if;
+    return ops.can_hr();
+  end if;
+
+  if v_folder !~ '^[0-9a-f-]{36}$' then return false; end if;
+
+  if p_mode = 'delete' and exists (select 1 from ops.hr_request_file where path = p_name) then return false; end if;
+
+  if v_folder = auth.uid()::text then
+    if not ops.is_employee() then return false; end if;
+    if p_mode = 'delete' then
+      return not exists (select 1 from ops.staff_document where path = p_name and verified_at is not null);
+    end if;
+    return true;
+  end if;
+
+  if not ops.can_hr() then return false; end if;
+  if p_mode = 'read' then
+    return exists (select 1 from ops.hr_access_log l
+                    where l.actor_id = auth.uid() and l.what = 'opened document ' || p_name
+                      and l.at > now() - interval '10 minutes');
+  end if;
+  return true;
+end $$;
+
+-- ---------------------------------------------------------------- helpers (not callable by clients)
+-- Checks a list like [{"path": "...", "name": "...", "mime": "...", "size": 123}] and stores it. Returns the count.
+create or replace function ops.attach_request_files(p_request uuid, p_message bigint, p_owner uuid, p_files jsonb)
+returns int
+language plpgsql security definer set search_path = '' as $$
+declare f jsonb; n int := 0;
+begin
+  if p_files is null or p_files = '[]'::jsonb then return 0; end if;
+  if jsonb_typeof(p_files) <> 'array' then raise exception 'The files are not in the expected shape'; end if;
+  if jsonb_array_length(p_files) > 5 then raise exception 'Attach at most 5 files at a time'; end if;
+  for f in select * from jsonb_array_elements(p_files) loop
+    if coalesce(f ->> 'path', '') !~ '^[0-9a-f-]{36}/[0-9a-f-]{36}-[A-Za-z0-9._-]{1,80}$'
+       or left(f ->> 'path', 36) <> p_owner::text then
+      raise exception 'The file must be stored in the requester''s own folder';
+    end if;
+    if coalesce(f ->> 'mime', '') not in ('application/pdf', 'image/jpeg', 'image/png', 'image/webp') then
+      raise exception 'Attach a PDF or an image (JPG, PNG or WebP)';
+    end if;
+    if coalesce((f ->> 'size')::numeric, 0) not between 1 and 10485760 then
+      raise exception 'Each file must be between 1 byte and 10 MB';
+    end if;
+    if char_length(btrim(coalesce(f ->> 'name', ''))) not between 1 and 120 then
+      raise exception 'Each file needs a name of up to 120 characters';
+    end if;
+    insert into ops.hr_request_file (request_id, message_id, staff_id, uploaded_by, name, path, mime, size_bytes)
+    values (p_request, p_message, p_owner, auth.uid(), btrim(f ->> 'name'), f ->> 'path', f ->> 'mime', (f ->> 'size')::int);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+create or replace function ops.notify_request(p_recipient uuid, p_kind text, p_request uuid, p_actor uuid, p_message text)
+returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if p_recipient is null or p_recipient is not distinct from p_actor then return; end if;
+  if not exists (select 1 from ops.staff where id = p_recipient and is_active) then return; end if;
+  insert into ops.notification (recipient_id, kind, request_id, actor_id, message)
+  values (p_recipient, p_kind, p_request, p_actor, left(p_message, 300));
+end $$;
+
+create or replace function ops.notify_hr_request(p_kind text, p_request uuid, p_actor uuid, p_message text)
+returns void
+language plpgsql security definer set search_path = '' as $$
+declare v_id uuid;
+begin
+  for v_id in
+    select id from ops.staff
+     where is_active and (is_hr or role = 'founder') and role not in ('viewer', 'partner')
+  loop
+    perform ops.notify_request(v_id, p_kind, p_request, p_actor, p_message);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------- RPCs (the old signatures are replaced)
+drop function ops.create_hr_request(text, text, text);
+drop function ops.add_hr_request_message(uuid, text, boolean);
+
+create or replace function ops.create_hr_request(p_kind text, p_subject text, p_details text default '', p_files jsonb default '[]')
+returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare v_id uuid; v_files int; v_name text;
+begin
+  if not ops.is_employee() then raise exception 'Only team members can ask HR' using errcode = '42501'; end if;
+  if (select count(*) from ops.hr_request where staff_id = auth.uid() and state in ('open', 'in_progress')) >= 10 then
+    raise exception 'You already have ten open requests. Wait for HR to answer some first.';
+  end if;
+  insert into ops.hr_request (staff_id, kind, subject, details)
+  values (auth.uid(), p_kind, btrim(p_subject), coalesce(p_details, ''))
+  returning id into v_id;
+  v_files := ops.attach_request_files(v_id, null, auth.uid(), p_files);
+  select full_name into v_name from ops.staff where id = auth.uid();
+  perform ops.notify_hr_request('request_new', v_id, auth.uid(),
+    v_name || ' asked HR: ' || btrim(p_subject)
+    || case when v_files > 0 then ' (' || v_files || case when v_files = 1 then ' file)' else ' files)' end else '' end);
+  return v_id;
+end $$;
+
+-- p_finish (HR only): the reply is the answer; the request is marked done with it.
+-- p_keep_copy (HR only, files only): also keep each file on the person's record as a verified 'letter'.
+create or replace function ops.add_hr_request_message(
+  p_request uuid, p_body text, p_internal boolean default false,
+  p_files jsonb default '[]', p_keep_copy boolean default false, p_finish boolean default false
+) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  r ops.hr_request; v_hr boolean := ops.can_hr(); v_internal boolean := coalesce(p_internal, false);
+  v_body text := btrim(coalesce(p_body, '')); v_has_files boolean := p_files is not null and p_files <> '[]'::jsonb;
+  v_msg bigint; v_files int; v_name text; v_note text;
+  f record;
+begin
+  select * into r from ops.hr_request where id = p_request;
+  if not found then raise exception 'That request does not exist'; end if;
+  if not v_hr and not (r.staff_id = auth.uid() and ops.is_employee()) then
+    raise exception 'You can''t write on this request' using errcode = '42501';
+  end if;
+  if not v_hr then
+    if v_internal then raise exception 'Only HR can leave internal notes' using errcode = '42501'; end if;
+    if r.state in ('done', 'rejected') then raise exception 'This request is closed. Open a new one.'; end if;
+  end if;
+  if v_internal and v_has_files then raise exception 'Internal notes can''t carry files'; end if;
+  if p_finish and (not v_hr or v_internal) then raise exception 'Only HR can answer a request' using errcode = '42501'; end if;
+  if p_finish and r.state in ('done', 'rejected') then raise exception 'This request is already closed'; end if;
+  if v_body = '' then
+    if not v_has_files then raise exception 'Write a message first.'; end if;
+    v_body := 'Sent a file.';
+  end if;
+
+  insert into ops.hr_request_message (request_id, author_id, body, internal)
+  values (p_request, auth.uid(), v_body, v_internal)
+  returning id into v_msg;
+  v_files := ops.attach_request_files(p_request, v_msg, r.staff_id, p_files);
+
+  if p_keep_copy and v_hr and not v_internal and v_files > 0 then
+    for f in select * from ops.hr_request_file where message_id = v_msg order by created_at, name loop
+      insert into ops.staff_document (staff_id, kind, title, path, mime, size_bytes, uploaded_by, verified_by, verified_at)
+      values (r.staff_id, 'letter',
+              left(case when v_files = 1 then r.subject else r.subject || ' - ' || f.name end, 120),
+              f.path, f.mime, f.size_bytes, auth.uid(), auth.uid(), now());
+    end loop;
+    perform ops.log_hr_access(r.staff_id, 'kept a copy of ' || v_files || ' file(s) from request ' || r.subject);
+  end if;
+
+  update ops.hr_request
+     set updated_at = now(),
+         state = case when p_finish then 'done' else state end,
+         handled_by = case when p_finish then auth.uid() else handled_by end,
+         resolution = case when p_finish then left(v_body, 1000) else resolution end,
+         closed_at = case when p_finish then now() else closed_at end
+   where id = p_request;
+
+  if not v_internal then
+    select full_name into v_name from ops.staff where id = auth.uid();
+    v_note := case when v_files > 0 then ' sent ' || v_files || case when v_files = 1 then ' file' else ' files' end || ' on: '
+              else ' replied on: ' end || r.subject;
+    if v_hr then
+      perform ops.notify_request(r.staff_id, 'request_hr_reply', p_request, auth.uid(),
+        case when p_finish then 'HR answered: ' || r.subject else 'HR' || v_note end);
+    else
+      perform ops.notify_hr_request('request_person_reply', p_request, auth.uid(), v_name || v_note);
+    end if;
+  end if;
+end $$;
+
+-- Returns the storage path. HR opening someone else's file is written to the access log first; the storage policy
+-- (ops.hr_doc_object_ok) reads that log row.
+create or replace function ops.open_request_file(p_file uuid) returns text
+language plpgsql security definer set search_path = '' as $$
+declare f ops.hr_request_file;
+begin
+  select * into f from ops.hr_request_file where id = p_file;
+  if not found then raise exception 'That file does not exist'; end if;
+  if f.staff_id = auth.uid() then
+    if not ops.is_employee() then raise exception 'You can''t open this file' using errcode = '42501'; end if;
+    return f.path;
+  end if;
+  if not ops.can_hr() then raise exception 'You can''t open this file' using errcode = '42501'; end if;
+  perform ops.log_hr_access(f.staff_id, 'opened document ' || f.path);
+  return f.path;
+end $$;
+
+revoke execute on all functions in schema ops from public;
+grant execute on function
+  ops.create_hr_request(text, text, text, jsonb),
+  ops.add_hr_request_message(uuid, text, boolean, jsonb, boolean, boolean),
+  ops.open_request_file(uuid)
+  to authenticated, service_role;
+-- People & HR home: what needs doing today, who is where, and sending a file to a person.
+-- Read-only security-definer functions gated by ops.can_hr(), plus one write: ops.hr_send_document, which stores a
+-- paper on a person's record already verified and tells them, in one transaction.
+
+-- ---------------------------------------------------------------- a notification kind for "HR sent you a file"
+-- Keep every kind the constraint already allows (another migration may have added some) and add the new one.
+do $$
+declare v_def text; v_kinds text[];
+begin
+  select pg_get_constraintdef(c.oid) into v_def
+    from pg_constraint c where c.conrelid = 'ops.notification'::regclass and c.conname = 'notification_kind_check';
+  select coalesce(array_agg(distinct g[1]), '{}') into v_kinds from regexp_matches(v_def, '''([a-z_]+)''', 'g') as m(g);
+  if not ('hr_file' = any (v_kinds)) then v_kinds := array_append(v_kinds, 'hr_file'); end if;
+  alter table ops.notification drop constraint notification_kind_check;
+  execute format('alter table ops.notification add constraint notification_kind_check check (kind in (%s))',
+                 (select string_agg(quote_literal(k), ', ' order by k) from unnest(v_kinds) k));
+end $$;
+
+-- ---------------------------------------------------------------- what needs action
+-- One prioritised list. Urgent rows first, then oldest first. At most 30 per kind; ops.hr_counts() has the true totals.
+create or replace function ops.hr_actions()
+returns table (
+  kind      text,
+  ref_id    text,
+  staff_id  uuid,
+  full_name text,
+  title     text,
+  detail    text,
+  since     timestamptz,
+  due_on    date,
+  urgent    boolean
+)
+language plpgsql stable security definer set search_path = '' as $$
+declare v_today date := ops.today_ist();
+begin
+  if not ops.can_hr() then raise exception 'Only HR can see this list' using errcode = '42501'; end if;
+  return query
+  with leave_rows as (
+    select 'leave'::text k, r.id::text ref, r.staff_id sid, s.full_name nm, t.name ttl,
+           r.days::text || case when r.days = 1 then ' day' else ' days' end dtl,
+           r.created_at sn, r.from_date dd, r.from_date <= v_today + 1 urg,
+           row_number() over (order by r.created_at) rn
+      from ops.leave_request r
+      join ops.staff s on s.id = r.staff_id
+      join ops.leave_type t on t.id = r.leave_type_id
+     where r.state = 'pending' and s.is_active
+  ), request_rows as (
+    select 'request'::text, q.id::text, q.staff_id, s.full_name, q.subject, q.kind,
+           q.created_at, null::date, q.created_at < now() - interval '3 days',
+           row_number() over (order by q.created_at)
+      from ops.hr_request q join ops.staff s on s.id = q.staff_id
+     where q.state = 'open' and s.is_active
+  ), document_rows as (
+    select 'document'::text, d.id::text, d.staff_id, s.full_name, d.title, d.kind,
+           d.created_at, null::date, d.created_at < now() - interval '3 days',
+           row_number() over (order by d.created_at)
+      from ops.staff_document d join ops.staff s on s.id = d.staff_id
+     where d.verified_at is null and d.verify_note is null and s.is_active
+  ), expiring_rows as (
+    select 'expiring'::text, d.id::text, d.staff_id, s.full_name, d.title, d.kind,
+           null::timestamptz, d.expires_on, d.expires_on <= v_today + 7,
+           row_number() over (order by d.expires_on)
+      from ops.staff_document d join ops.staff s on s.id = d.staff_id
+     where d.expires_on is not null and d.expires_on <= v_today + 30 and s.is_active
+  ), onboarding_rows as (
+    select 'onboarding'::text, o.id::text, o.staff_id, s.full_name, o.title, o.kind || ' - ' || o.owner,
+           o.created_at, o.due_on, o.due_on < v_today,
+           row_number() over (order by o.due_on, o.created_at)
+      from ops.onboarding_task o join ops.staff s on s.id = o.staff_id
+     where o.done_at is null and o.due_on <= v_today and s.is_active
+  ), everything as (
+    select * from leave_rows union all select * from request_rows union all select * from document_rows
+    union all select * from expiring_rows union all select * from onboarding_rows
+  )
+  select e.k, e.ref, e.sid, e.nm, e.ttl, e.dtl, e.sn, e.dd, e.urg
+    from everything e
+   where e.rn <= 30
+   order by e.urg desc, coalesce(e.sn, e.dd::timestamptz) asc, e.nm;
+end $$;
+
+-- True totals for the headline strip.
+create or replace function ops.hr_counts()
+returns table (
+  leave_pending    bigint,
+  requests_waiting bigint,
+  docs_to_verify   bigint,
+  docs_expiring    bigint,
+  onboarding_due   bigint,
+  headcount        bigint,
+  on_leave_today   bigint
+)
+language plpgsql stable security definer set search_path = '' as $$
+declare v_today date := ops.today_ist();
+begin
+  if not ops.can_hr() then raise exception 'Only HR can see this list' using errcode = '42501'; end if;
+  return query select
+    (select count(*) from ops.leave_request r join ops.staff s on s.id = r.staff_id where r.state = 'pending' and s.is_active),
+    (select count(*) from ops.hr_request q join ops.staff s on s.id = q.staff_id where q.state = 'open' and s.is_active),
+    (select count(*) from ops.staff_document d join ops.staff s on s.id = d.staff_id
+      where d.verified_at is null and d.verify_note is null and s.is_active),
+    (select count(*) from ops.staff_document d join ops.staff s on s.id = d.staff_id
+      where d.expires_on is not null and d.expires_on <= v_today + 30 and s.is_active),
+    (select count(*) from ops.onboarding_task o join ops.staff s on s.id = o.staff_id
+      where o.done_at is null and o.due_on <= v_today and s.is_active),
+    (select count(*) from ops.staff where is_active and role in ('founder', 'dept_lead', 'member')),
+    (select count(distinct r.staff_id) from ops.leave_request r join ops.staff s on s.id = r.staff_id
+      where r.state = 'approved' and s.is_active and v_today between r.from_date and r.to_date);
+end $$;
+
+-- ---------------------------------------------------------------- who is where
+-- list: on_leave | joining | leaving | probation | setup_gap | birthday | anniversary.
+-- Birthdays follow the same privacy rule as the directory: only people who chose to show theirs, never the year.
+create or replace function ops.hr_overview()
+returns table (list text, staff_id uuid, full_name text, on_date date, detail text)
+language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_today date := ops.today_ist();
+  v_month_start date := date_trunc('month', ops.today_ist())::date;
+  v_month_end date := (date_trunc('month', ops.today_ist()) + interval '1 month' - interval '1 day')::date;
+begin
+  if not ops.can_hr() then raise exception 'Only HR can see this list' using errcode = '42501'; end if;
+  return query
+  select 'on_leave'::text, r.staff_id, s.full_name, r.to_date, t.name
+    from ops.leave_request r join ops.staff s on s.id = r.staff_id join ops.leave_type t on t.id = r.leave_type_id
+   where r.state = 'approved' and s.is_active and v_today between r.from_date and r.to_date
+  union all
+  select 'joining', p.staff_id, s.full_name, p.joined_on,
+         case when p.joined_on > v_today then 'Joins' else 'Joined' end
+    from ops.staff_profile p join ops.staff s on s.id = p.staff_id
+   where s.is_active and p.joined_on between v_month_start and v_month_end
+  union all
+  select 'leaving', o.staff_id, s.full_name, max(o.due_on),
+         (count(*) - count(o.done_at))::text || ' of ' || count(*)::text || ' steps left'
+    from ops.onboarding_task o join ops.staff s on s.id = o.staff_id
+   where o.kind = 'leaver'
+   group by o.staff_id, s.full_name
+  having count(o.done_at) < count(*)
+  union all
+  select 'probation', p.staff_id, s.full_name, p.probation_end, ''
+    from ops.staff_profile p join ops.staff s on s.id = p.staff_id
+   where s.is_active and p.probation_end between v_today and v_today + 30
+  union all
+  select 'setup_gap', s.id, s.full_name, p.joined_on,
+         concat_ws(' and ',
+           case when p.staff_id is null or p.legal_name is null or p.birth_date is null or p.emergency_name is null
+                then 'profile details' end,
+           case when not exists (select 1 from ops.staff_document d
+                                  where d.staff_id = s.id and d.kind = 'id_proof' and d.verified_at is not null)
+                then 'a verified ID proof' end)
+    from ops.staff s left join ops.staff_profile p on p.staff_id = s.id
+   where s.is_active and s.role in ('founder', 'dept_lead', 'member')
+     and (p.joined_on >= v_today - 90
+          or exists (select 1 from ops.onboarding_task o where o.staff_id = s.id and o.kind = 'joiner' and o.done_at is null))
+     and (p.staff_id is null or p.legal_name is null or p.birth_date is null or p.emergency_name is null
+          or not exists (select 1 from ops.staff_document d
+                          where d.staff_id = s.id and d.kind = 'id_proof' and d.verified_at is not null))
+  union all
+  select 'birthday', s.id, s.full_name, n.next_on, ''
+    from ops.staff s join ops.staff_profile p on p.staff_id = s.id
+    cross join lateral (
+      select case when (p.birth_date + (extract(year from v_today) - extract(year from p.birth_date))::int * interval '1 year')::date >= v_today
+                  then (p.birth_date + (extract(year from v_today) - extract(year from p.birth_date))::int * interval '1 year')::date
+                  else (p.birth_date + (extract(year from v_today) - extract(year from p.birth_date) + 1)::int * interval '1 year')::date
+             end as next_on) n
+   where s.is_active and s.role <> 'partner' and p.birthday_visible and p.birth_date is not null
+     and n.next_on <= v_today + 14
+  union all
+  select 'anniversary', s.id, s.full_name, n.next_on, ((extract(year from n.next_on) - extract(year from p.joined_on))::int)::text
+    from ops.staff s join ops.staff_profile p on p.staff_id = s.id
+    cross join lateral (
+      select case when (p.joined_on + (extract(year from v_today) - extract(year from p.joined_on))::int * interval '1 year')::date >= v_today
+                  then (p.joined_on + (extract(year from v_today) - extract(year from p.joined_on))::int * interval '1 year')::date
+                  else (p.joined_on + (extract(year from v_today) - extract(year from p.joined_on) + 1)::int * interval '1 year')::date
+             end as next_on) n
+   where s.is_active and s.role <> 'partner' and p.joined_on is not null
+     and n.next_on <= v_today + 14
+     and extract(year from n.next_on) - extract(year from p.joined_on) >= 1
+  order by 1, 4, 3;
+end $$;
+
+-- ---------------------------------------------------------------- send a file to a person
+-- The paper goes onto the person's record already verified (HR is the one handing it over), is logged in the access
+-- log, and the person gets a notification. The file itself is uploaded to the private bucket first, in their folder.
+create or replace function ops.hr_send_document(
+  p_staff uuid, p_kind text, p_title text, p_path text, p_mime text, p_size int, p_note text default null
+) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare v_id uuid; v_title text := btrim(coalesce(p_title, '')); v_note text := nullif(btrim(coalesce(p_note, '')), '');
+begin
+  if auth.uid() is null then raise exception 'Not signed in' using errcode = '42501'; end if;
+  if not ops.can_hr() then raise exception 'Only HR can send a file to a person' using errcode = '42501'; end if;
+  if p_staff = auth.uid() then raise exception 'Choose someone else. Your own papers go under My documents'; end if;
+  if not exists (select 1 from ops.staff where id = p_staff and is_active and role in ('founder', 'dept_lead', 'member')) then
+    raise exception 'That person does not keep documents here';
+  end if;
+  if v_title = '' or char_length(v_title) > 120 then raise exception 'Give the file a title of up to 120 characters'; end if;
+  if v_note is not null and char_length(v_note) > 300 then raise exception 'Keep the note under 300 characters'; end if;
+  if p_path is null or left(p_path, 37) <> p_staff::text || '/' then
+    raise exception 'The file must be stored in the person''s own folder';
+  end if;
+
+  insert into ops.staff_document (staff_id, kind, title, path, mime, size_bytes, uploaded_by, verified_by, verified_at)
+  values (p_staff, p_kind, v_title, p_path, p_mime, p_size, auth.uid(), auth.uid(), now())
+  returning id into v_id;
+
+  perform ops.log_hr_access(p_staff, 'sent document ' || v_title);
+
+  insert into ops.notification (recipient_id, kind, actor_id, message, dedupe_key)
+  values (p_staff, 'hr_file', auth.uid(),
+          'HR sent you a file: ' || v_title || coalesce(' - ' || v_note, ''),
+          'hr_file:' || v_id::text)
+  on conflict (recipient_id, dedupe_key) where dedupe_key is not null do nothing;
+  return v_id;
+end $$;
+
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.hr_actions(), ops.hr_counts(), ops.hr_overview(),
+  ops.hr_send_document(uuid, text, text, text, text, int, text)
+  to authenticated, service_role;
+-- 0038: shared tasks (one task, several owners), read-only access to a parent task for the people holding its
+-- subtasks, and a counts-only progress summary for a group of per-person copies.
+--
+-- 1. ops.task.shared + ops.task_owner: ONE task row with several owners, finished when ANY owner finishes it.
+--    The "each does their own" model (a copy per person linked by group_id, 0028) is unchanged. For a shared task
+--    assignee_id is the primary (first) owner, and every owner including the primary has a task_owner row.
+--    Owners are written only by ops.create_shared_task / add_task_owner / remove_task_owner (no DML policy).
+-- 2. A co-owner counts as an assignee: sees the task, may update its status, accept it, comment, track time, is
+--    watching it, is notified of changes and gets due and overdue reminders. A department lead who leads a
+--    co-owner manages a department-less shared task, just as for a primary assignee.
+-- 3. The assignee or a co-owner of a SUBTASK can read the parent and the sibling subtasks (task rows only).
+--    Comments, history, watchers and time on those tasks stay hidden: those tables now ask ops.sees_task_fully(),
+--    which is the task read rule WITHOUT the subtask-holder path. Nothing about UPDATE or DELETE widens.
+-- 4. ops.task_group_progress(group): counts only, for anyone who can see at least one copy of the group.
+
+-- ---------------------------------------------------------------- columns and table
+alter table ops.task add column shared boolean not null default false;
+alter table ops.task add constraint task_shared_no_group check (not shared or group_id is null);
+
+create table ops.task_owner (
+  task_id  uuid not null references ops.task (id) on delete cascade,
+  staff_id uuid not null references ops.staff (id) on delete cascade,
+  added_by uuid references ops.staff (id) on delete set null,
+  added_at timestamptz not null default now(),
+  primary key (task_id, staff_id)
+);
+create index task_owner_staff_idx on ops.task_owner (staff_id);
+create index task_owner_added_by_idx on ops.task_owner (added_by);
+
+-- ---------------------------------------------------------------- helpers
+create or replace function ops.is_task_owner(p_task uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from ops.task_owner o where o.task_id = p_task and o.staff_id = auth.uid())
+$$;
+
+-- A department lead who leads at least one owner (never counting themselves) of a shared task.
+create or replace function ops.leads_task_owners(p_task uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select ops.my_role() = 'dept_lead'
+     and exists (select 1 from ops.task_owner o join ops.staff s on s.id = o.staff_id
+                 where o.task_id = p_task and o.staff_id <> auth.uid()
+                   and s.departments && ops.my_departments())
+$$;
+
+-- Does the caller hold (as assignee or co-owner) a subtask of this parent?
+create or replace function ops.holds_subtask_of(p_parent uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from ops.task c
+                 where c.parent_task_id = p_parent
+                   and (c.assignee_id = auth.uid()
+                        or exists (select 1 from ops.task_owner o where o.task_id = c.id and o.staff_id = auth.uid())))
+$$;
+
+-- The full task read rule: everything task_sel allows except the subtask-holder paths. Comments, history,
+-- watchers, owners and time hang off this, so reading a parent through a subtask never opens them.
+create or replace function ops.sees_task_fully(p_task uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from ops.task t
+                 where t.id = p_task
+                   and (t.department = any (ops.my_departments())
+                        or t.assignee_id = auth.uid()
+                        or t.created_by = auth.uid()
+                        or ops.is_watching(t.id)
+                        or ops.is_task_owner(t.id)
+                        or (t.department is null
+                            and (ops.is_founder() or ops.leads_task_assignee(t.assignee_id) or ops.leads_task_owners(t.id)))))
+$$;
+
+-- Who may be given a task (same rules the guard applies to the primary assignee).
+create or replace function ops.check_task_person(p_staff uuid, p_template text) returns void
+language plpgsql stable security definer set search_path = '' as $$
+declare a record;
+begin
+  select s.role, s.is_active into a from ops.staff s where s.id = p_staff;
+  if not found or not a.is_active then raise exception 'Choose an active team member to assign this task to'; end if;
+  if a.role = 'viewer' then raise exception 'A viewer cannot be given tasks'; end if;
+  if a.role = 'partner' and coalesce(p_template, '') <> 'follow_up' then
+    raise exception 'Partners can only be given follow-up tasks';
+  end if;
+end $$;
+
+create or replace function ops.task_manager(p_task uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from ops.task t
+                 where t.id = p_task
+                   and (ops.is_founder()
+                        or t.created_by = auth.uid()
+                        or (ops.my_role() = 'dept_lead'
+                            and (ops.in_dept(t.department)
+                                 or (t.department is null
+                                     and (ops.leads_task_assignee(t.assignee_id) or ops.leads_task_owners(t.id)))))))
+$$;
+
+-- ---------------------------------------------------------------- policies on ops.task
+drop policy task_sel on ops.task;
+create policy task_sel on ops.task for select to authenticated
+  using (department = any ((select ops.my_departments())::ops.department[])
+         or assignee_id = (select auth.uid())
+         or created_by = (select auth.uid())
+         or (select ops.is_watching(id))
+         or (select ops.is_task_owner(id))
+         or (department is null and ((select ops.is_founder()) or (select ops.leads_task_assignee(assignee_id))
+                                     or (select ops.leads_task_owners(id))))
+         or (select ops.holds_subtask_of(id))
+         or (parent_task_id is not null and (select ops.holds_subtask_of(parent_task_id))));
+
+drop policy task_upd on ops.task;
+create policy task_upd on ops.task for update to authenticated
+  using ((select ops.can_write())
+         and (department = any ((select ops.my_departments())::ops.department[])
+              or assignee_id = (select auth.uid())
+              or created_by = (select auth.uid())
+              or (select ops.is_task_owner(id))
+              or (department is null and ((select ops.is_founder()) or (select ops.leads_task_assignee(assignee_id))
+                                          or (select ops.leads_task_owners(id))))))
+  with check ((select ops.can_write())
+         and (department = any ((select ops.my_departments())::ops.department[])
+              or assignee_id = (select auth.uid())
+              or created_by = (select auth.uid())
+              or (select ops.is_task_owner(id))
+              or (department is null and ((select ops.is_founder()) or (select ops.leads_task_assignee(assignee_id))
+                                          or (select ops.leads_task_owners(id))))));
+
+drop policy task_del on ops.task;
+create policy task_del on ops.task for delete to authenticated
+  using (((department = any ((select ops.my_departments())::ops.department[]))
+          and (select ops.my_role()) in ('founder', 'dept_lead'))
+         or (department is null and (select ops.is_founder()))
+         or (department is null and (select ops.leads_task_assignee(assignee_id)))
+         or (department is null and (select ops.leads_task_owners(id))));
+
+-- ---------------------------------------------------------------- policies on tables that hang off a task
+alter table ops.task_owner enable row level security;
+create policy task_owner_sel on ops.task_owner for select to authenticated
+  using ((select ops.sees_task_fully(task_id)));
+
+drop policy task_history_sel on ops.task_history;
+create policy task_history_sel on ops.task_history for select to authenticated
+  using ((select ops.sees_task_fully(task_id)));
+
+drop policy task_comment_sel on ops.task_comment;
+create policy task_comment_sel on ops.task_comment for select to authenticated
+  using ((select ops.sees_task_fully(task_id)));
+drop policy task_comment_ins on ops.task_comment;
+create policy task_comment_ins on ops.task_comment for insert to authenticated
+  with check ((select ops.can_write())
+              and author_id = (select auth.uid())
+              and (select ops.sees_task_fully(task_id)));
+
+drop policy task_watcher_sel on ops.task_watcher;
+create policy task_watcher_sel on ops.task_watcher for select to authenticated
+  using ((select ops.sees_task_fully(task_id)));
+drop policy task_watcher_ins on ops.task_watcher;
+create policy task_watcher_ins on ops.task_watcher for insert to authenticated
+  with check ((select ops.can_write())
+              and (select ops.sees_task_fully(task_id))
+              and (staff_id = (select auth.uid()) or (select ops.task_manager(task_id))));
+
+drop policy time_entry_ins on ops.time_entry;
+create policy time_entry_ins on ops.time_entry for insert to authenticated
+  with check ((select ops.can_track_time())
+              and staff_id = (select auth.uid())
+              and (select ops.sees_task_fully(task_id)));
+
+-- ---------------------------------------------------------------- guard (0028 plus shared tasks)
+create or replace function ops.task_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid     uuid := case when ops.is_system() then null else auth.uid() end;
+  mgr     boolean;
+  a       record;
+  p       record;
+  rpc     boolean := coalesce(current_setting('ops.task_rpc', true), '') = '1';
+begin
+  new.title := btrim(new.title);
+  if new.title = '' then raise exception 'A task needs a title'; end if;
+  if new.due_date is null then new.due_time := null; end if;
+  if new.start_date is not null and new.due_date is not null and new.start_date > new.due_date then
+    raise exception 'The start date cannot be after the deadline';
+  end if;
+
+  if new.assignee_id is not null and (tg_op = 'INSERT' or new.assignee_id is distinct from old.assignee_id) then
+    select s.role, s.is_active into a from ops.staff s where s.id = new.assignee_id;
+    if not found or not a.is_active then raise exception 'Choose an active team member to assign this task to'; end if;
+    if a.role = 'viewer' then raise exception 'A viewer cannot be given tasks'; end if;
+    if a.role = 'partner' and coalesce(new.template, '') <> 'follow_up' then
+      raise exception 'Partners can only be given follow-up tasks';
+    end if;
+  end if;
+
+  if new.parent_task_id is not null and (tg_op = 'INSERT' or new.parent_task_id is distinct from old.parent_task_id) then
+    if new.parent_task_id = new.id then raise exception 'A task cannot be its own subtask'; end if;
+    select t.parent_task_id, t.status into p from ops.task t where t.id = new.parent_task_id;
+    if not found then raise exception 'The parent task was not found'; end if;
+    if p.parent_task_id is not null then raise exception 'A subtask cannot have subtasks'; end if;
+    if p.status in ('done', 'cancelled') then raise exception 'Add subtasks to an open task'; end if;
+    if tg_op = 'UPDATE' and exists (select 1 from ops.task c where c.parent_task_id = new.id) then
+      raise exception 'A task with subtasks cannot become a subtask';
+    end if;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.status <> 'todo' then raise exception 'A new task starts as To do'; end if;
+    if uid is not null then new.created_by := uid; end if;
+    new.completed_at := null;
+    new.completed_by := null;
+    new.blocked_reason := null;
+    new.cancel_reason := null;
+    if uid is not null then
+      new.recurrence_id := null;
+      new.period_start := null;
+    end if;
+    if not rpc then
+      new.group_id := null;
+      new.shared := false;
+    end if;
+    if uid is not null or new.assignee_id is null then new.accepted_at := null; end if;
+    if new.assignee_id is not null then
+      new.assigned_by := coalesce(uid, new.created_by);
+      new.assigned_at := now();
+      if new.assignee_id = uid then new.accepted_at := now(); end if;
+    else
+      new.assigned_by := null;
+      new.assigned_at := null;
+    end if;
+    return new;
+  end if;
+
+  -- stamps are never taken from the caller
+  new.created_by := old.created_by;
+  new.created_at := old.created_at;
+  new.assigned_by := old.assigned_by;
+  new.assigned_at := old.assigned_at;
+  new.completed_at := old.completed_at;
+  new.completed_by := old.completed_by;
+  new.recurrence_id := old.recurrence_id;
+  new.period_start := old.period_start;
+  new.group_id := old.group_id;
+  new.shared := old.shared;
+
+  mgr := uid is null
+         or ops.is_founder()
+         or old.created_by = uid
+         or (ops.my_role() = 'dept_lead'
+             and (ops.in_dept(old.department)
+                  or (old.department is null
+                      and (ops.leads_task_assignee(old.assignee_id) or ops.leads_task_owners(old.id)))));
+
+  if not mgr and (new.title is distinct from old.title
+                  or new.description is distinct from old.description
+                  or new.department is distinct from old.department
+                  or new.category is distinct from old.category
+                  or new.entity_type is distinct from old.entity_type
+                  or new.entity_id is distinct from old.entity_id
+                  or new.parent_task_id is distinct from old.parent_task_id) then
+    raise exception 'Only the person who created this task, a department lead or a founder can edit its details';
+  end if;
+
+  if new.assignee_id is distinct from old.assignee_id then
+    if old.shared then
+      -- owners of a shared task change only through its owner list, which keeps the stamps
+      if not rpc then raise exception 'Change who owns a shared task from its list of owners'; end if;
+      new.assigned_by := old.assigned_by;
+      new.assigned_at := old.assigned_at;
+      new.accepted_at := old.accepted_at;
+    else
+      if not mgr
+         and not (new.assignee_id is null and old.assignee_id = uid)
+         and not (old.assignee_id is null and new.assignee_id = uid) then
+        raise exception 'Only the person who assigned this task, a department lead or a founder can reassign it';
+      end if;
+      new.assigned_by := uid;
+      new.assigned_at := case when new.assignee_id is null then null else now() end;
+      new.accepted_at := case when new.assignee_id is not null and new.assignee_id = uid then now() else null end;
+    end if;
+  elsif new.accepted_at is distinct from old.accepted_at then
+    if new.accepted_at is null then
+      new.accepted_at := old.accepted_at;
+    elsif uid is not null and uid is distinct from new.assignee_id and not (new.shared and ops.is_task_owner(new.id)) then
+      raise exception 'Only the assignee can accept a task';
+    else
+      new.accepted_at := coalesce(old.accepted_at, now());
+    end if;
+  end if;
+
+  if new.status is distinct from old.status then
+    if old.status in ('done', 'cancelled') and not (mgr or old.completed_by = uid) then
+      raise exception 'Only a lead, a founder, or the person who created or finished this task can reopen it';
+    end if;
+    if old.status = 'done' and new.status not in ('todo', 'doing') then
+      raise exception 'A finished task can only be reopened';
+    end if;
+    if old.status = 'cancelled' and new.status <> 'todo' then
+      raise exception 'A cancelled task can only be reopened';
+    end if;
+    if new.status = 'blocked' and coalesce(btrim(new.blocked_reason), '') = '' then
+      raise exception 'Say what is blocking this task';
+    end if;
+    if new.status = 'cancelled' and coalesce(btrim(new.cancel_reason), '') = '' then
+      raise exception 'Say why the task is cancelled';
+    end if;
+    if new.status in ('done', 'cancelled')
+       and exists (select 1 from ops.task c where c.parent_task_id = new.id and c.status in ('todo', 'doing', 'blocked')) then
+      raise exception 'Finish or cancel the subtasks first';
+    end if;
+    if new.status = 'done' then
+      new.completed_at := now();
+      new.completed_by := uid;
+    elsif old.status = 'done' then
+      new.completed_at := null;
+      new.completed_by := null;
+    end if;
+    if new.status in ('doing', 'done') and new.accepted_at is null and uid is not null
+       and ((new.assignee_id is not null and new.assignee_id = uid) or (new.shared and ops.is_task_owner(new.id))) then
+      new.accepted_at := now();
+    end if;
+  end if;
+
+  if new.status <> 'blocked' then new.blocked_reason := null; end if;
+  if new.status <> 'cancelled' then new.cancel_reason := null; end if;
+  return new;
+end $$;
+
+-- ---------------------------------------------------------------- notifications (0019 plus co-owners)
+-- A shared task's assignee change (the primary moving to another owner) is announced by the owner RPCs instead.
+create or replace function ops.task_notify() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid   uuid := case when ops.is_system() then null else auth.uid() end;
+  who   text := coalesce((select full_name from ops.staff where id = uid), 'Someone');
+  t     text := left(new.title, 80);
+  what  text;
+  r     uuid;
+begin
+  if tg_op = 'INSERT' then
+    perform ops.auto_watch(new.id, new.created_by, null);
+    if new.assignee_id is not null then
+      perform ops.auto_watch(new.id, new.assignee_id, uid);
+      if uid is null then
+        perform ops.notify(new.assignee_id, 'recurring', new.id, null, 'Your fixed task is ready: ' || t);
+      else
+        perform ops.notify(new.assignee_id, 'assigned', new.id, uid, who || ' gave you a task: ' || t);
+      end if;
+    end if;
+    return new;
+  end if;
+
+  if new.assignee_id is distinct from old.assignee_id and not new.shared then
+    if new.assignee_id is not null then
+      perform ops.auto_watch(new.id, new.assignee_id, uid);
+      perform ops.notify(new.assignee_id, 'assigned', new.id, uid, who || ' gave you a task: ' || t);
+    end if;
+    perform ops.notify(old.assignee_id, 'assigned', new.id, uid, who || ' took you off: ' || t);
+  end if;
+
+  if new.status is distinct from old.status then
+    what := case new.status
+      when 'done' then 'marked it done'
+      when 'doing' then case when old.status in ('done', 'cancelled') then 'reopened it' else 'started it' end
+      when 'blocked' then 'marked it blocked: ' || coalesce(new.blocked_reason, '')
+      when 'cancelled' then 'cancelled it: ' || coalesce(new.cancel_reason, '')
+      else case when old.status in ('done', 'cancelled') then 'reopened it' else 'moved it back to to do' end
+    end;
+    for r in select w.staff_id from ops.task_watcher w where w.task_id = new.id
+             union select o.staff_id from ops.task_owner o where o.task_id = new.id loop
+      perform ops.notify(r, 'status', new.id, uid, who || ' ' || what || ' (' || t || ')');
+    end loop;
+  end if;
+
+  if new.due_date is distinct from old.due_date or new.due_time is distinct from old.due_time
+     or new.start_date is distinct from old.start_date then
+    for r in select w.staff_id from ops.task_watcher w where w.task_id = new.id
+             union select o.staff_id from ops.task_owner o where o.task_id = new.id loop
+      perform ops.notify(r, 'dates', new.id, uid,
+        who || ' changed the dates of ' || t || ': ' ||
+        coalesce(to_char(new.start_date, 'DD Mon'), 'no start') || ' to ' || coalesce(to_char(new.due_date, 'DD Mon'), 'no deadline'));
+    end loop;
+  end if;
+  return new;
+end $$;
+
+create or replace function ops.task_comment_notify() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  who text := coalesce((select full_name from ops.staff where id = new.author_id), 'Someone');
+  t   text := (select left(title, 80) from ops.task where id = new.task_id);
+  r   uuid;
+begin
+  perform ops.auto_watch(new.task_id, new.author_id, new.author_id);
+  foreach r in array new.mentions loop
+    perform ops.auto_watch(new.task_id, r, new.author_id);
+    perform ops.notify(r, 'mentioned', new.task_id, new.author_id, who || ' mentioned you on ' || t);
+  end loop;
+  for r in select x.staff_id
+             from (select w.staff_id from ops.task_watcher w where w.task_id = new.task_id
+                   union select o.staff_id from ops.task_owner o where o.task_id = new.task_id) x
+            where x.staff_id <> new.author_id and not (x.staff_id = any (new.mentions)) loop
+    perform ops.notify(r, 'comment', new.task_id, new.author_id, who || ' commented on ' || t);
+  end loop;
+  return new;
+end $$;
+
+-- Due today and overdue reminders reach every owner of a shared task, not only the primary.
+create or replace function ops.run_task_reminders() returns integer
+language plpgsql security definer set search_path = '' as $$
+declare
+  today date := (now() at time zone 'Asia/Kolkata')::date;
+  r     record;
+  w     uuid;
+  sent  integer := 0;
+begin
+  for r in select id, left(title, 80) as t, assignee_id, due_date from ops.task
+           where status in ('todo', 'doing', 'blocked') and assignee_id is not null
+             and due_date <= today and due_date >= today - 60 loop
+    if r.due_date = today then
+      for w in select r.assignee_id union select o.staff_id from ops.task_owner o where o.task_id = r.id loop
+        if ops.notify(w, 'due_today', r.id, null, 'Due today: ' || r.t, 'due:' || r.id || ':' || r.due_date) then
+          sent := sent + 1;
+        end if;
+      end loop;
+    else
+      for w in select r.assignee_id
+               union select o.staff_id from ops.task_owner o where o.task_id = r.id
+               union select k.staff_id from ops.task_watcher k where k.task_id = r.id loop
+        if ops.notify(w, 'overdue', r.id, null,
+                      'Overdue since ' || to_char(r.due_date, 'DD Mon') || ': ' || r.t, 'overdue:' || r.id || ':' || r.due_date) then
+          sent := sent + 1;
+        end if;
+      end loop;
+    end if;
+  end loop;
+  return sent;
+end $$;
+
+-- ---------------------------------------------------------------- shared task RPCs
+-- Same parameters as create_task_group. One task, 2 to 20 people, the first is the primary owner.
+create or replace function ops.create_shared_task(
+  title text,
+  assignees uuid[],
+  description text default null,
+  priority integer default 3,
+  due_date date default null,
+  due_time time default null,
+  start_date date default null,
+  estimate_minutes integer default null,
+  department ops.department default null,
+  category text default null)
+returns uuid
+language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_variable
+declare
+  uid    uuid := auth.uid();
+  ppl    uuid[];
+  who    uuid;
+  tid    uuid;
+  nm     text;
+  was    text := coalesce(current_setting('ops.task_rpc', true), '');
+begin
+  if uid is null or not ops.can_write() or not ops.is_internal() then
+    raise exception 'Your role cannot create tasks for the team';
+  end if;
+  if coalesce(btrim(title), '') = '' then raise exception 'A task needs a title'; end if;
+
+  select array_agg(x.a order by x.first_at) into ppl
+    from (select a, min(o) as first_at from unnest(assignees) with ordinality u(a, o) where a is not null group by a) x;
+  if ppl is null or cardinality(ppl) < 2 then raise exception 'A shared task needs at least two people'; end if;
+  if cardinality(ppl) > 20 then raise exception 'A task can be shared by at most 20 people'; end if;
+  foreach who in array ppl loop
+    perform ops.check_task_person(who, null);
+  end loop;
+
+  perform set_config('ops.task_rpc', '1', true);
+  insert into ops.task (title, description, priority, due_date, due_time, start_date, estimate_minutes,
+                        department, category, assignee_id, shared)
+  values (title, description, priority, due_date, due_time, start_date, estimate_minutes,
+          department, category, ppl[1], true)
+  returning id into tid;
+
+  insert into ops.task_owner (task_id, staff_id, added_by) select tid, x, uid from unnest(ppl) x;
+
+  nm := coalesce((select s.full_name from ops.staff s where s.id = uid), 'Someone');
+  foreach who in array ppl[2:cardinality(ppl)] loop
+    perform ops.auto_watch(tid, who, uid);
+    perform ops.notify(who, 'assigned', tid, uid, nm || ' gave you a shared task: ' || left(title, 80));
+    insert into ops.task_history (task_id, actor_id, kind, to_value)
+    select tid, uid, 'assigned', s.full_name from ops.staff s where s.id = who;
+  end loop;
+
+  if uid = any (ppl) then
+    update ops.task t set accepted_at = now() where t.id = tid and t.accepted_at is null;
+  end if;
+  perform set_config('ops.task_rpc', was, true);
+  return tid;
+end $$;
+
+create or replace function ops.add_task_owner(p_task uuid, p_staff uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid uuid := auth.uid();
+  t   record;
+  n   integer;
+  nm  text;
+begin
+  select x.title, x.shared, x.status, x.template into t from ops.task x where x.id = p_task;
+  if not found then raise exception 'The task was not found'; end if;
+  if uid is null or not ops.can_write() or not ops.task_manager(p_task) then
+    raise exception 'Only the person who created this task, a department lead or a founder can change its owners';
+  end if;
+  if not t.shared then raise exception 'This task is not shared'; end if;
+  if t.status in ('done', 'cancelled') then raise exception 'Reopen the task before changing its owners'; end if;
+  if exists (select 1 from ops.task_owner o where o.task_id = p_task and o.staff_id = p_staff) then
+    raise exception 'That person already owns this task';
+  end if;
+  select count(*) into n from ops.task_owner o where o.task_id = p_task;
+  if n >= 20 then raise exception 'A task can be shared by at most 20 people'; end if;
+  perform ops.check_task_person(p_staff, t.template);
+
+  insert into ops.task_owner (task_id, staff_id, added_by) values (p_task, p_staff, uid);
+  nm := coalesce((select s.full_name from ops.staff s where s.id = uid), 'Someone');
+  perform ops.auto_watch(p_task, p_staff, uid);
+  perform ops.notify(p_staff, 'assigned', p_task, uid, nm || ' gave you a shared task: ' || left(t.title, 80));
+  insert into ops.task_history (task_id, actor_id, kind, to_value)
+  select p_task, uid, 'assigned', s.full_name from ops.staff s where s.id = p_staff;
+end $$;
+
+create or replace function ops.remove_task_owner(p_task uuid, p_staff uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid uuid := auth.uid();
+  t   record;
+  n   integer;
+  nxt uuid;
+  nm  text;
+  was text := coalesce(current_setting('ops.task_rpc', true), '');
+begin
+  select x.title, x.shared, x.status, x.assignee_id, x.created_by into t from ops.task x where x.id = p_task;
+  if not found then raise exception 'The task was not found'; end if;
+  if uid is null or not ops.can_write() or not ops.task_manager(p_task) then
+    raise exception 'Only the person who created this task, a department lead or a founder can change its owners';
+  end if;
+  if not t.shared then raise exception 'This task is not shared'; end if;
+  if t.status in ('done', 'cancelled') then raise exception 'Reopen the task before changing its owners'; end if;
+  if not exists (select 1 from ops.task_owner o where o.task_id = p_task and o.staff_id = p_staff) then
+    raise exception 'That person does not own this task';
+  end if;
+  select count(*) into n from ops.task_owner o where o.task_id = p_task;
+  if n <= 2 then raise exception 'A shared task needs at least two owners'; end if;
+
+  delete from ops.task_owner o where o.task_id = p_task and o.staff_id = p_staff;
+  if p_staff is distinct from t.created_by then
+    delete from ops.task_watcher w where w.task_id = p_task and w.staff_id = p_staff;
+  end if;
+
+  if t.assignee_id = p_staff then
+    select o.staff_id into nxt from ops.task_owner o where o.task_id = p_task order by o.added_at, o.staff_id limit 1;
+    perform set_config('ops.task_rpc', '1', true);
+    update ops.task x set assignee_id = nxt where x.id = p_task;
+    perform set_config('ops.task_rpc', was, true);
+  else
+    insert into ops.task_history (task_id, actor_id, kind, from_value)
+    select p_task, uid, 'assigned', s.full_name from ops.staff s where s.id = p_staff;
+  end if;
+
+  nm := coalesce((select s.full_name from ops.staff s where s.id = uid), 'Someone');
+  perform ops.notify(p_staff, 'assigned', p_task, uid, nm || ' took you off: ' || left(t.title, 80));
+end $$;
+
+-- ---------------------------------------------------------------- group progress (counts only)
+-- total = done + open (cancelled copies are left out). Overdue means open with a deadline before today (India).
+create or replace function ops.task_group_progress(p_group uuid)
+returns table (total integer, done integer, open integer, overdue integer, people integer)
+language sql stable security definer set search_path = '' as $$
+  select (count(*) filter (where t.status <> 'cancelled'))::integer,
+         (count(*) filter (where t.status = 'done'))::integer,
+         (count(*) filter (where t.status in ('todo', 'doing', 'blocked')))::integer,
+         (count(*) filter (where t.status in ('todo', 'doing', 'blocked') and t.due_date < ops.today_ist()))::integer,
+         (count(distinct t.assignee_id) filter (where t.status <> 'cancelled'))::integer
+    from ops.task t
+   where t.group_id = p_group
+  having coalesce(bool_or(ops.sees_task_fully(t.id)), false)
+$$;
+
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.is_task_owner(uuid), ops.leads_task_owners(uuid), ops.holds_subtask_of(uuid),
+                          ops.sees_task_fully(uuid), ops.task_manager(uuid),
+                          ops.create_shared_task(text, uuid[], text, integer, date, time, date, integer, ops.department, text),
+                          ops.add_task_owner(uuid, uuid), ops.remove_task_owner(uuid, uuid),
+                          ops.task_group_progress(uuid) to authenticated, service_role;
+-- 0039: files on tasks (docs/BUSINESS_RULES.md "Task files").
+-- 1. A private Storage bucket `task-files`: 25 MB per file, images and documents only. Object path is
+--    `<task id>/<uuid>/<safe file name>`. The browser uploads straight to Storage with a signed upload URL; the
+--    server then checks the real bytes and calls ops.register_task_attachment(). A file that was never registered is
+--    just an object nobody can see in the app.
+-- 2. ops.task_attachment: one row per registered file, optionally tied to a comment, optionally an inline image
+--    (shown inside the description). Written only through the RPCs below. Removing is a soft delete that anyone
+--    who may edit the task can undo until ops.purge_task_attachments() makes it final.
+-- 3. ops.task.attachment_count and comment_count, kept by triggers, so a card never has to count rows.
+-- 4. ops.task_file_orphan: paths whose row is gone (purged, or the task was deleted). A service job removes
+--    the objects from Storage, then calls ops.ack_task_file_orphans().
+-- 5. Storage rules call ops.task_file_object_ok() so they live in one place and are tested in PGlite.
+
+-- ---------------------------------------------------------------- who may edit a task (mirrors task_upd)
+create or replace function ops.can_edit_task(p_task uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select ops.can_write()
+     and exists (select 1 from ops.task t
+                 where t.id = p_task
+                   and (t.department = any (ops.my_departments())
+                        or t.assignee_id = auth.uid()
+                        or t.created_by = auth.uid()
+                        or ops.is_task_owner(t.id)
+                        or (t.department is null
+                            and (ops.is_founder() or ops.leads_task_assignee(t.assignee_id) or ops.leads_task_owners(t.id)))))
+$$;
+
+-- ---------------------------------------------------------------- history kinds
+alter table ops.task_history drop constraint task_history_kind_check;
+alter table ops.task_history add constraint task_history_kind_check
+  check (kind in ('created', 'assigned', 'status', 'due', 'start', 'priority', 'department', 'edited',
+                  'file_added', 'file_removed', 'file_restored'));
+
+-- ---------------------------------------------------------------- counters on the task
+alter table ops.task
+  add column attachment_count int not null default 0 check (attachment_count >= 0),
+  add column comment_count    int not null default 0 check (comment_count >= 0);
+
+alter table ops.task disable trigger t_task_upd;
+update ops.task t set comment_count = c.n
+  from (select task_id, count(*)::int as n from ops.task_comment group by task_id) c
+ where c.task_id = t.id;
+alter table ops.task enable trigger t_task_upd;
+
+create or replace function ops.task_comment_count_sync() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_task uuid := case when tg_op = 'DELETE' then old.task_id else new.task_id end;
+begin
+  update ops.task set comment_count = (select count(*)::int from ops.task_comment where task_id = v_task)
+   where id = v_task;
+  return null;
+end $$;
+create trigger t_task_comment_count after insert or delete on ops.task_comment
+  for each row execute function ops.task_comment_count_sync();
+
+-- ---------------------------------------------------------------- the files
+create table ops.task_attachment (
+  id          uuid primary key default gen_random_uuid(),
+  task_id     uuid not null references ops.task (id) on delete cascade,
+  comment_id  uuid references ops.task_comment (id) on delete set null,
+  path        text not null unique
+              check (path ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$'
+                 and left(path, 36) = task_id::text),
+  name        text not null check (char_length(btrim(name)) between 1 and 160),
+  mime        text not null check (mime in (
+                'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'text/csv', 'text/plain', 'text/markdown')),
+  size_bytes  int not null check (size_bytes between 1 and 26214400),
+  kind        text not null check (kind in ('image', 'document') and ((kind = 'image') = (mime like 'image/%'))),
+  is_inline   boolean not null default false check (not is_inline or kind = 'image'),
+  uploaded_by uuid references ops.staff (id) on delete set null default auth.uid(),
+  created_at  timestamptz not null default now(),
+  deleted_at  timestamptz,
+  deleted_by  uuid references ops.staff (id) on delete set null,
+  check (deleted_by is null or deleted_at is not null)
+);
+create index task_attachment_task_idx on ops.task_attachment (task_id, created_at);
+create index task_attachment_comment_idx on ops.task_attachment (comment_id);
+create index task_attachment_uploader_idx on ops.task_attachment (uploaded_by);
+create index task_attachment_deleted_by_idx on ops.task_attachment (deleted_by);
+create index task_attachment_deleted_at_idx on ops.task_attachment (deleted_at) where deleted_at is not null;
+
+alter table ops.task_attachment enable row level security;
+-- Whoever reads the task in full sees its files. A removed file shows only to its uploader and to people who may edit the task.
+create policy task_attachment_sel on ops.task_attachment for select to authenticated
+  using ((select ops.sees_task_fully(task_id))
+         and (deleted_at is null or uploaded_by = (select auth.uid()) or (select ops.can_edit_task(task_id))));
+
+create or replace function ops.task_attachment_count_sync() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_task uuid := case when tg_op = 'DELETE' then old.task_id else new.task_id end;
+begin
+  update ops.task set attachment_count = (select count(*)::int from ops.task_attachment where task_id = v_task and deleted_at is null)
+   where id = v_task;
+  return null;
+end $$;
+create trigger t_task_attachment_count after insert or update of deleted_at or delete on ops.task_attachment
+  for each row execute function ops.task_attachment_count_sync();
+
+-- ---------------------------------------------------------------- paths to clean out of Storage
+create table ops.task_file_orphan (
+  path      text primary key,
+  queued_at timestamptz not null default now()
+);
+create index task_file_orphan_queued_idx on ops.task_file_orphan (queued_at);
+alter table ops.task_file_orphan enable row level security;
+create policy task_file_orphan_sel on ops.task_file_orphan for select to authenticated
+  using ((select ops.is_founder()));
+
+create or replace function ops.task_attachment_orphan() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into ops.task_file_orphan (path) values (old.path) on conflict do nothing;
+  return null;
+end $$;
+create trigger t_task_attachment_orphan after delete on ops.task_attachment
+  for each row execute function ops.task_attachment_orphan();
+
+-- ---------------------------------------------------------------- RPCs
+-- Registers an uploaded file. The caller must have uploaded the object already (checked here when Storage exists).
+-- On the task itself: anyone who may edit the task. On a comment: the comment's own author, who may read the task.
+create or replace function ops.register_task_attachment(
+  p_task uuid, p_path text, p_name text, p_mime text, p_size int,
+  p_comment uuid default null, p_inline boolean default false
+) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_id    uuid;
+  v_name  text := btrim(coalesce(p_name, ''));
+  v_kind  text;
+  v_size  bigint := p_size;
+  v_found boolean;
+begin
+  if auth.uid() is null then raise exception 'Sign in to add files' using errcode = '42501'; end if;
+  if p_task is null or not ops.sees_task_fully(p_task) then raise exception 'That task was not found'; end if;
+  if not ops.can_write() then raise exception 'You do not have access to add files' using errcode = '42501'; end if;
+
+  if p_comment is null then
+    if not ops.can_edit_task(p_task) then
+      raise exception 'You cannot add files to this task' using errcode = '42501';
+    end if;
+  elsif not exists (select 1 from ops.task_comment c
+                     where c.id = p_comment and c.task_id = p_task and c.author_id = auth.uid()) then
+    raise exception 'You can only attach files to your own comment on this task';
+  end if;
+
+  if coalesce(p_path, '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$'
+     or left(p_path, 36) <> p_task::text then
+    raise exception 'The file must be stored in this task''s own folder';
+  end if;
+  if char_length(v_name) not between 1 and 160 then raise exception 'A file name must be 1 to 160 characters'; end if;
+  v_kind := case when coalesce(p_mime, '') like 'image/%' then 'image' else 'document' end;
+  if coalesce(p_mime, '') not in (
+       'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
+       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+       'text/csv', 'text/plain', 'text/markdown') then
+    raise exception 'That file type is not allowed. Use an image, PDF, Word, Excel, PowerPoint, CSV, text or Markdown file';
+  end if;
+  if coalesce(p_inline, false) and v_kind <> 'image' then raise exception 'Only an image can be placed inside the description'; end if;
+
+  if to_regclass('storage.objects') is not null then
+    execute 'select true, (metadata ->> ''size'')::bigint from storage.objects where bucket_id = ''task-files'' and name = $1'
+      into v_found, v_size using p_path;
+    if not coalesce(v_found, false) then raise exception 'The file was not uploaded. Try again'; end if;
+    v_size := coalesce(v_size, p_size);
+  end if;
+  if coalesce(v_size, 0) not between 1 and 26214400 then raise exception 'Each file must be between 1 byte and 25 MB'; end if;
+
+  perform 1 from ops.task where id = p_task for update;
+  if (select count(*) from ops.task_attachment where task_id = p_task and deleted_at is null) >= 100 then
+    raise exception 'A task can hold at most 100 files. Remove one first';
+  end if;
+
+  insert into ops.task_attachment (task_id, comment_id, path, name, mime, size_bytes, kind, is_inline, uploaded_by)
+  values (p_task, p_comment, p_path, v_name, p_mime, v_size::int, v_kind, coalesce(p_inline, false), auth.uid())
+  returning id into v_id;
+
+  insert into ops.task_history (task_id, actor_id, kind, to_value) values (p_task, auth.uid(), 'file_added', left(v_name, 160));
+  return v_id;
+end $$;
+
+-- Takes a file off the task (soft delete). The uploader, or anyone who may edit the task.
+create or replace function ops.remove_task_attachment(p_id uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare a record;
+begin
+  if auth.uid() is null then raise exception 'Sign in to remove files' using errcode = '42501'; end if;
+  select x.* into a from ops.task_attachment x where x.id = p_id;
+  if not found or not ops.sees_task_fully(a.task_id) then raise exception 'That file was not found'; end if;
+  if not ops.can_write() or not (a.uploaded_by = auth.uid() or ops.can_edit_task(a.task_id)) then
+    raise exception 'You cannot remove this file' using errcode = '42501';
+  end if;
+  if a.deleted_at is not null then raise exception 'That file is already removed'; end if;
+  update ops.task_attachment set deleted_at = now(), deleted_by = auth.uid() where id = p_id;
+  insert into ops.task_history (task_id, actor_id, kind, from_value) values (a.task_id, auth.uid(), 'file_removed', left(a.name, 160));
+end $$;
+
+create or replace function ops.restore_task_attachment(p_id uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare a record;
+begin
+  if auth.uid() is null then raise exception 'Sign in to restore files' using errcode = '42501'; end if;
+  select x.* into a from ops.task_attachment x where x.id = p_id;
+  if not found or not ops.sees_task_fully(a.task_id) then raise exception 'That file was not found'; end if;
+  if not ops.can_write() or not (a.uploaded_by = auth.uid() or ops.can_edit_task(a.task_id)) then
+    raise exception 'You cannot restore this file' using errcode = '42501';
+  end if;
+  if a.deleted_at is null then raise exception 'That file is not removed'; end if;
+  perform 1 from ops.task where id = a.task_id for update;
+  if (select count(*) from ops.task_attachment where task_id = a.task_id and deleted_at is null) >= 100 then
+    raise exception 'A task can hold at most 100 files. Remove one first';
+  end if;
+  update ops.task_attachment set deleted_at = null, deleted_by = null where id = p_id;
+  insert into ops.task_history (task_id, actor_id, kind, to_value) values (a.task_id, auth.uid(), 'file_restored', left(a.name, 160));
+end $$;
+
+-- Service job: makes removals older than p_days final and returns the Storage paths waiting to be deleted.
+create or replace function ops.purge_task_attachments(p_days integer default 30) returns setof text
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not ops.is_system() then raise exception 'Only the scheduled job can purge files' using errcode = '42501'; end if;
+  if p_days is null or p_days < 0 then raise exception 'Give the number of days to keep removed files'; end if;
+  delete from ops.task_attachment where deleted_at is not null and deleted_at < now() - make_interval(days => p_days);
+  return query select o.path from ops.task_file_orphan o order by o.queued_at limit 1000;
+end $$;
+
+-- Service job: the objects at these paths are gone from Storage.
+create or replace function ops.ack_task_file_orphans(p_paths text[]) returns integer
+language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  if not ops.is_system() then raise exception 'Only the scheduled job can do this' using errcode = '42501'; end if;
+  delete from ops.task_file_orphan where path = any (coalesce(p_paths, '{}'));
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- ---------------------------------------------------------------- Storage rules
+-- p_mode: 'read', 'write' (upload) or 'delete'. Called from the policies on storage.objects.
+-- Reading and uploading need the same access as the comments: read the task in full (a person who only holds a
+-- subtask is out) and not be a viewer. Whether the upload is then registered on the task or on a comment is
+-- decided by the RPC. A registered file's object can never be deleted from the browser; a removed file's object
+-- can be read only by who can still see its row.
+create or replace function ops.task_file_object_ok(p_name text, p_mode text) returns boolean
+language plpgsql stable security definer set search_path = '' as $$
+declare v_task uuid;
+begin
+  if auth.uid() is null or p_name is null then return false; end if;
+  if p_name !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$' then
+    return false;
+  end if;
+  v_task := left(p_name, 36)::uuid;
+  if not ops.sees_task_fully(v_task) then return false; end if;
+
+  if p_mode = 'read' then
+    return not exists (select 1 from ops.task_attachment a
+                        where a.path = p_name and a.deleted_at is not null
+                          and not (a.uploaded_by = auth.uid() or ops.can_edit_task(a.task_id)));
+  end if;
+  if not ops.can_write() then return false; end if;
+  if p_mode = 'delete' then
+    return not exists (select 1 from ops.task_attachment a where a.path = p_name);
+  end if;
+  return p_mode = 'write';
+end $$;
+
+do $do$
+begin
+  if to_regclass('storage.buckets') is not null then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('task-files', 'task-files', false, 26214400, array[
+      'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/csv', 'text/plain', 'text/markdown'])
+    on conflict (id) do update
+      set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+  end if;
+  if to_regclass('storage.objects') is not null then
+    drop policy if exists task_files_read on storage.objects;
+    drop policy if exists task_files_insert on storage.objects;
+    drop policy if exists task_files_delete on storage.objects;
+    create policy task_files_read on storage.objects for select to authenticated
+      using (bucket_id = 'task-files' and (select ops.task_file_object_ok(name, 'read')));
+    create policy task_files_insert on storage.objects for insert to authenticated
+      with check (bucket_id = 'task-files' and (select ops.task_file_object_ok(name, 'write')));
+    create policy task_files_delete on storage.objects for delete to authenticated
+      using (bucket_id = 'task-files' and (select ops.task_file_object_ok(name, 'delete')));
+  end if;
+end
+$do$;
+
+-- ---------------------------------------------------------------- grants
+revoke execute on all functions in schema ops from public;
+grant execute on function
+  ops.can_edit_task(uuid), ops.task_file_object_ok(text, text),
+  ops.register_task_attachment(uuid, text, text, text, int, uuid, boolean),
+  ops.remove_task_attachment(uuid), ops.restore_task_attachment(uuid) to authenticated, service_role;
+grant execute on function ops.purge_task_attachments(integer), ops.ack_task_file_orphans(text[]) to service_role;
+-- 0040: a subtask can be shared by several people.
+-- ops.create_shared_task gains an optional parent_task. The subtask rules (open parent, no nesting) are enforced by the
+-- task guard as for any subtask; this adds who may attach one: someone who can read the parent in full, or who already
+-- holds a subtask of it. The old signature is dropped so a call with named arguments never matches two functions.
+
+drop function ops.create_shared_task(text, uuid[], text, integer, date, time, date, integer, ops.department, text);
+
+create or replace function ops.create_shared_task(
+  title text,
+  assignees uuid[],
+  description text default null,
+  priority integer default 3,
+  due_date date default null,
+  due_time time default null,
+  start_date date default null,
+  estimate_minutes integer default null,
+  department ops.department default null,
+  category text default null,
+  parent_task uuid default null)
+returns uuid
+language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_variable
+declare
+  uid    uuid := auth.uid();
+  ppl    uuid[];
+  who    uuid;
+  tid    uuid;
+  nm     text;
+  was    text := coalesce(current_setting('ops.task_rpc', true), '');
+begin
+  if uid is null or not ops.can_write() or not ops.is_internal() then
+    raise exception 'Your role cannot create tasks for the team';
+  end if;
+  if coalesce(btrim(title), '') = '' then raise exception 'A task needs a title'; end if;
+
+  select array_agg(x.a order by x.first_at) into ppl
+    from (select a, min(o) as first_at from unnest(assignees) with ordinality u(a, o) where a is not null group by a) x;
+  if ppl is null or cardinality(ppl) < 2 then raise exception 'A shared task needs at least two people'; end if;
+  if cardinality(ppl) > 20 then raise exception 'A task can be shared by at most 20 people'; end if;
+  foreach who in array ppl loop
+    perform ops.check_task_person(who, null);
+  end loop;
+
+  if parent_task is not null
+     and not (ops.sees_task_fully(parent_task) or ops.holds_subtask_of(parent_task)) then
+    raise exception 'The parent task was not found';
+  end if;
+
+  perform set_config('ops.task_rpc', '1', true);
+  insert into ops.task (title, description, priority, due_date, due_time, start_date, estimate_minutes,
+                        department, category, assignee_id, shared, parent_task_id)
+  values (title, description, priority, due_date, due_time, start_date, estimate_minutes,
+          department, category, ppl[1], true, parent_task)
+  returning id into tid;
+
+  insert into ops.task_owner (task_id, staff_id, added_by) select tid, x, uid from unnest(ppl) x;
+
+  nm := coalesce((select s.full_name from ops.staff s where s.id = uid), 'Someone');
+  foreach who in array ppl[2:cardinality(ppl)] loop
+    perform ops.auto_watch(tid, who, uid);
+    perform ops.notify(who, 'assigned', tid, uid, nm || ' gave you a shared task: ' || left(title, 80));
+    insert into ops.task_history (task_id, actor_id, kind, to_value)
+    select tid, uid, 'assigned', s.full_name from ops.staff s where s.id = who;
+  end loop;
+
+  if uid = any (ppl) then
+    update ops.task t set accepted_at = now() where t.id = tid and t.accepted_at is null;
+  end if;
+  perform set_config('ops.task_rpc', was, true);
+  return tid;
+end $$;
+
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.create_shared_task(text, uuid[], text, integer, date, time, date, integer, ops.department, text, uuid)
+  to authenticated, service_role;
+-- 0041: what the scheduled clean-up job needs to keep Storage tidy (see scripts/purge-task-files.mjs).
+--  * ops.list_unregistered_task_objects: objects that were uploaded but never registered (the browser closed, or the
+--    registration failed and the discard did not run). Anything newer than p_older_than is left alone, so an upload
+--    that is still in flight is never touched.
+--  * ops.task_files_deletable: of the paths a job is about to delete, the ones with no attachment row at all. This is
+--    the safety net: the job asks the database before every delete, so an object that still backs a file is kept.
+-- Both are for the service role only. Neither changes any data.
+
+create or replace function ops.list_unregistered_task_objects(p_older_than interval default interval '24 hours', p_limit integer default 500)
+returns setof text
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not ops.is_system() then raise exception 'Only the scheduled job can list stray files' using errcode = '42501'; end if;
+  if p_older_than is null or p_older_than < interval '1 hour' then raise exception 'Leave uploads younger than an hour alone'; end if;
+  if p_limit is null or p_limit not between 1 and 1000 then raise exception 'Ask for between 1 and 1000 files'; end if;
+  if to_regclass('storage.objects') is null then return; end if;
+  return query execute
+    'select o.name from storage.objects o
+      where o.bucket_id = ''task-files'' and o.created_at < now() - $1
+        and not exists (select 1 from ops.task_attachment a where a.path = o.name)
+        and not exists (select 1 from ops.task_file_orphan q where q.path = o.name)
+      order by o.created_at limit $2'
+    using p_older_than, p_limit;
+end $$;
+
+create or replace function ops.task_files_deletable(p_paths text[]) returns setof text
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not ops.is_system() then raise exception 'Only the scheduled job can do this' using errcode = '42501'; end if;
+  return query
+    select p from unnest(coalesce(p_paths, '{}')) as p
+     where not exists (select 1 from ops.task_attachment a where a.path = p);
+end $$;
+
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.list_unregistered_task_objects(interval, integer), ops.task_files_deletable(text[]) to service_role;
+-- 0042: the task assistant (bring-your-own Gemini key).
+--  * ops.ai_key: one row per person holding their Gemini key, ALREADY ENCRYPTED by the app (AES-256-GCM, bound to the
+--    person's id). The ciphertext is never selectable by a signed-in user (column grants) and is only handed back to its
+--    owner through ops.load_ai_key(). The database never sees the plain key.
+--  * ops.ai_conversation / ops.ai_message: a person's chats, private to them.
+--  * ops.ai_action: a DRAFT the assistant proposes (create a task, change a status, ...). Nothing happens until the
+--    person confirms it; the app then runs it through the normal task actions with that person's own session, so every
+--    task rule and every RLS policy still applies. A draft cannot be edited after it is made, expires after 24 hours,
+--    and can only move pending -> running -> done / failed (failed -> running to retry), or pending -> cancelled.
+-- Limits that keep one account from running away live here too: chats, messages per hour and day, drafts waiting.
+
+-- ---------------------------------------------------------------- the key
+create table ops.ai_key (
+  staff_id   uuid primary key references ops.staff (id) on delete cascade,
+  cipher     text not null check (char_length(cipher) between 20 and 2000),
+  key_hint   text not null check (char_length(key_hint) between 1 and 8),
+  model      text not null check (model ~ '^[A-Za-z0-9._-]{1,80}$'),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table ops.ai_key enable row level security;
+create policy ai_key_sel on ops.ai_key for select to authenticated
+  using (staff_id = (select auth.uid()));
+-- No insert/update/delete policy: written only through the functions below.
+revoke all on ops.ai_key from authenticated, anon;
+grant select (staff_id, key_hint, model, created_at, updated_at) on ops.ai_key to authenticated;
+
+create or replace function ops.ai_caller() returns uuid
+language plpgsql stable security definer set search_path = '' as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null or ops.is_system() then raise exception 'Sign in to use the assistant' using errcode = '42501'; end if;
+  if not exists (select 1 from ops.staff where id = uid and is_active) then
+    raise exception 'Your access was removed' using errcode = '42501';
+  end if;
+  return uid;
+end $$;
+
+create or replace function ops.save_ai_key(p_cipher text, p_hint text, p_model text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare uid uuid := ops.ai_caller();
+begin
+  insert into ops.ai_key (staff_id, cipher, key_hint, model) values (uid, p_cipher, p_hint, p_model)
+  on conflict (staff_id) do update set cipher = excluded.cipher, key_hint = excluded.key_hint, model = excluded.model, updated_at = now();
+end $$;
+
+create or replace function ops.set_ai_model(p_model text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare uid uuid := ops.ai_caller();
+begin
+  if p_model is null or p_model !~ '^[A-Za-z0-9._-]{1,80}$' then raise exception 'Choose a model'; end if;
+  update ops.ai_key set model = p_model, updated_at = now() where staff_id = uid;
+  if not found then raise exception 'Add your Gemini key first'; end if;
+end $$;
+
+create or replace function ops.delete_ai_key() returns void
+language plpgsql security definer set search_path = '' as $$
+declare uid uuid := ops.ai_caller();
+begin
+  delete from ops.ai_key where staff_id = uid;
+end $$;
+
+create or replace function ops.load_ai_key() returns table (cipher text, model text)
+language plpgsql stable security definer set search_path = '' as $$
+declare uid uuid := ops.ai_caller();
+begin
+  return query select k.cipher, k.model from ops.ai_key k where k.staff_id = uid;
+end $$;
+
+-- ---------------------------------------------------------------- chats
+create table ops.ai_conversation (
+  id         uuid primary key default gen_random_uuid(),
+  staff_id   uuid not null default auth.uid() references ops.staff (id) on delete cascade,
+  title      text not null default 'New chat' check (char_length(btrim(title)) between 1 and 120),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index ai_conversation_staff_idx on ops.ai_conversation (staff_id, updated_at desc);
+alter table ops.ai_conversation enable row level security;
+create policy ai_conversation_sel on ops.ai_conversation for select to authenticated using (staff_id = (select auth.uid()));
+create policy ai_conversation_ins on ops.ai_conversation for insert to authenticated with check (staff_id = (select auth.uid()));
+create policy ai_conversation_upd on ops.ai_conversation for update to authenticated
+  using (staff_id = (select auth.uid())) with check (staff_id = (select auth.uid()));
+create policy ai_conversation_del on ops.ai_conversation for delete to authenticated using (staff_id = (select auth.uid()));
+
+create or replace function ops.ai_conversation_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    perform ops.ai_caller();
+    if (select count(*) from ops.ai_conversation where staff_id = new.staff_id) >= 200 then
+      raise exception 'You have 200 chats. Delete some before starting another';
+    end if;
+  else
+    if new.staff_id <> old.staff_id then raise exception 'A chat cannot change owner'; end if;
+    new.updated_at := now();
+  end if;
+  return new;
+end $$;
+create trigger t_ai_conversation_guard before insert or update on ops.ai_conversation
+  for each row execute function ops.ai_conversation_guard();
+
+create table ops.ai_message (
+  id              uuid primary key default gen_random_uuid(),
+  seq             bigint generated always as identity,
+  conversation_id uuid not null references ops.ai_conversation (id) on delete cascade,
+  staff_id        uuid not null default auth.uid() references ops.staff (id) on delete cascade,
+  role            text not null check (role in ('user', 'model', 'tool')),
+  content         jsonb not null check (jsonb_typeof(content) = 'object' and octet_length(content::text) <= 100000),
+  created_at      timestamptz not null default now()
+);
+create index ai_message_conversation_idx on ops.ai_message (conversation_id, seq);
+create index ai_message_staff_idx on ops.ai_message (staff_id, created_at);
+alter table ops.ai_message enable row level security;
+create policy ai_message_sel on ops.ai_message for select to authenticated using (staff_id = (select auth.uid()));
+create policy ai_message_ins on ops.ai_message for insert to authenticated with check (staff_id = (select auth.uid()));
+create policy ai_message_del on ops.ai_message for delete to authenticated using (staff_id = (select auth.uid()));
+-- Messages are never edited.
+
+create or replace function ops.ai_message_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform ops.ai_caller();
+  if not exists (select 1 from ops.ai_conversation c where c.id = new.conversation_id and c.staff_id = new.staff_id) then
+    raise exception 'That chat was not found';
+  end if;
+  if (select count(*) from ops.ai_message where conversation_id = new.conversation_id) >= 600 then
+    raise exception 'This chat is full. Start a new one';
+  end if;
+  if new.role = 'user' then
+    if (select count(*) from ops.ai_message where staff_id = new.staff_id and role = 'user' and created_at > now() - interval '1 hour') >= 60 then
+      raise exception 'You have sent a lot of messages this hour. Wait a few minutes and try again';
+    end if;
+    if (select count(*) from ops.ai_message where staff_id = new.staff_id and role = 'user' and created_at > now() - interval '1 day') >= 400 then
+      raise exception 'You have reached today''s limit of 400 messages. Try again tomorrow';
+    end if;
+  end if;
+  return new;
+end $$;
+create trigger t_ai_message_guard before insert on ops.ai_message
+  for each row execute function ops.ai_message_guard();
+
+create or replace function ops.ai_message_touch() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  update ops.ai_conversation set updated_at = now() where id = new.conversation_id;
+  return null;
+end $$;
+create trigger t_ai_message_touch after insert on ops.ai_message
+  for each row execute function ops.ai_message_touch();
+
+-- ---------------------------------------------------------------- drafts
+create table ops.ai_action (
+  id              uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references ops.ai_conversation (id) on delete cascade,
+  staff_id        uuid not null default auth.uid() references ops.staff (id) on delete cascade,
+  kind            text not null check (kind in ('create_task', 'create_subtasks', 'update_task', 'set_schedule', 'change_status', 'assign_task', 'add_comment')),
+  payload         jsonb not null check (jsonb_typeof(payload) = 'object' and octet_length(payload::text) <= 30000),
+  summary         text not null check (char_length(btrim(summary)) between 1 and 600),
+  status          text not null default 'pending' check (status in ('pending', 'running', 'done', 'failed', 'cancelled')),
+  result          jsonb,
+  error           text check (char_length(error) <= 600),
+  created_at      timestamptz not null default now(),
+  decided_at      timestamptz,
+  expires_at      timestamptz not null default now() + interval '24 hours'
+);
+create index ai_action_conversation_idx on ops.ai_action (conversation_id, created_at);
+create index ai_action_staff_idx on ops.ai_action (staff_id, status);
+alter table ops.ai_action enable row level security;
+create policy ai_action_sel on ops.ai_action for select to authenticated using (staff_id = (select auth.uid()));
+create policy ai_action_ins on ops.ai_action for insert to authenticated with check (staff_id = (select auth.uid()));
+create policy ai_action_upd on ops.ai_action for update to authenticated
+  using (staff_id = (select auth.uid())) with check (staff_id = (select auth.uid()));
+create policy ai_action_del on ops.ai_action for delete to authenticated using (staff_id = (select auth.uid()));
+
+create or replace function ops.ai_action_guard() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform ops.ai_caller();
+  if tg_op = 'INSERT' then
+    if not exists (select 1 from ops.ai_conversation c where c.id = new.conversation_id and c.staff_id = new.staff_id) then
+      raise exception 'That chat was not found';
+    end if;
+    if (select count(*) from ops.ai_action where staff_id = new.staff_id and status = 'pending') >= 30 then
+      raise exception 'You have 30 drafts waiting. Confirm or discard some first';
+    end if;
+    new.status := 'pending'; new.result := null; new.error := null; new.decided_at := null;
+    new.created_at := now(); new.expires_at := now() + interval '24 hours';
+    return new;
+  end if;
+
+  if new.kind is distinct from old.kind or new.payload is distinct from old.payload or new.summary is distinct from old.summary
+     or new.staff_id is distinct from old.staff_id or new.conversation_id is distinct from old.conversation_id
+     or new.created_at is distinct from old.created_at or new.expires_at is distinct from old.expires_at then
+    raise exception 'A draft cannot be changed. Ask for a new one';
+  end if;
+  if new.status = old.status and new.status = 'running' and old.decided_at < now() - interval '5 minutes' then
+    new.decided_at := now();
+    return new;
+  end if;
+  if new.status is not distinct from old.status then
+    if new.result is distinct from old.result or new.error is distinct from old.error or new.decided_at is distinct from old.decided_at then
+      raise exception 'A draft''s outcome is set when it moves on';
+    end if;
+    return new;
+  end if;
+  if not ((old.status = 'pending' and new.status in ('running', 'cancelled'))
+       or (old.status = 'running' and new.status in ('done', 'failed'))
+       or (old.status = 'failed' and new.status = 'running')) then
+    raise exception 'This draft is already % and cannot be %', old.status, new.status;
+  end if;
+  if new.status = 'running' and old.expires_at < now() then
+    raise exception 'This draft has expired. Ask the assistant again';
+  end if;
+  new.decided_at := now();
+  if new.status = 'running' then new.error := null; end if;
+  return new;
+end $$;
+create trigger t_ai_action_guard before insert or update on ops.ai_action
+  for each row execute function ops.ai_action_guard();
+
+-- ---------------------------------------------------------------- grants
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.save_ai_key(text, text, text), ops.set_ai_model(text), ops.delete_ai_key(), ops.load_ai_key() to authenticated;
+-- 0043: the assistant learns calendar, workshop and sales drafts. Only the list of draft kinds changes; the table,
+-- its RLS policies and the guard trigger (0042) already cover every kind the same way, so a new kind needs no new rule.
+-- A draft still only runs when its owner confirms it, through the same server action the screens use.
+
+alter table ops.ai_action drop constraint ai_action_kind_check;
+alter table ops.ai_action add constraint ai_action_kind_check check (kind in (
+  'create_task', 'create_subtasks', 'update_task', 'set_schedule', 'change_status', 'assign_task', 'add_comment',
+  'schedule_meeting', 'update_meeting', 'cancel_meeting', 'rsvp_meeting',
+  'create_event', 'update_event', 'set_event_team', 'event_status', 'toggle_run_item',
+  'log_activity', 'create_deal', 'update_deal', 'move_deal'
+));
+
+revoke execute on all functions in schema ops from public;
+grant execute on function ops.save_ai_key(text, text, text), ops.set_ai_model(text), ops.delete_ai_key(), ops.load_ai_key() to authenticated;

@@ -267,7 +267,30 @@ See `ACCESS_MODEL.md` for the full matrix.
 - **Who sees what:** a person their own requests and ledger; a lead their team's; HR and the founder everyone's. `team_away` shows names to the person's department mates, with the leave type only to leads, HR and the founder.
 - **Attendance:** an approved leave on a scheduled working day shows as "On leave (Casual)" and is not counted absent (a full-day leave also stops that day being expected; a half day still expects the rest). Having checked in wins over leave; a holiday wins over leave.
 
+## Shared tasks, subtask access and group progress (0038)
+| Rule | Where | Message |
+|---|---|---|
+| A shared task is one task with several owners (`task.shared`, `task_owner`), done when any owner finishes it; `assignee_id` is the primary (first) owner and every owner, primary included, has a `task_owner` row. A per-person group (`group_id`) is a different thing and is unchanged | `create_shared_task`, `task_owner` | n/a |
+| 2 to 20 distinct people, same person checks as a group (active, not a viewer, partner only for follow-ups) | `create_shared_task` | "A shared task needs at least two people", "A task can be shared by at most 20 people" |
+| A co-owner counts as an assignee: sees, accepts, changes status and blocked reason, comments, tracks time, is notified and reminded | `task_sel`, `task_upd`, `task_guard`, `task_notify`, `task_comment_notify`, `run_task_reminders` | n/a |
+| Owners are changed only through the RPCs by the creator, a founder or the department lead; open tasks only; at least 2 owners always; removing the primary moves `assignee_id` to the earliest remaining owner; no direct DML on `task_owner`; `shared` and `assignee_id` of a shared task cannot be edited directly | `add_task_owner`, `remove_task_owner`, `task_guard` | "Only the person who created this task, a department lead or a founder can change its owners", "A shared task needs at least two owners", "Change who owns a shared task from its list of owners" |
+| The finisher is recorded in `completed_by`; KPIs and timeliness stay with the primary owner | `task_guard`, `v_task_timeliness` | n/a |
+| The assignee or co-owner of a subtask can read (never change) the parent task and its sibling subtasks; comments, history, watchers and time on those stay hidden (`sees_task_fully`) | `task_sel`, `holds_subtask_of`, `sees_task_fully` | n/a |
+| Group progress gives counts only (total, done, open, overdue against IST today, people); cancelled copies are left out; empty for anyone who cannot see a copy | `task_group_progress` | n/a |
+
+## Task files (0039)
+| Rule | Where | Message |
+|---|---|---|
+| Allowed: PNG, JPG, WebP, GIF, PDF, Word, Excel, PowerPoint, CSV, text, Markdown. No SVG, zip or video. 1 byte to 25 MB; at most 100 live files per task. The same list is in the bucket, the table check, the RPC and `lib/schemas/task-files.ts` | `task_attachment` checks, `task-files` bucket, `register_task_attachment` | "That file type is not allowed. Use an image, PDF, Word, Excel, PowerPoint, CSV, text or Markdown file", "Each file must be between 1 byte and 25 MB", "A task can hold at most 100 files. Remove one first" |
+| Files go straight from the browser to the private `task-files` bucket by a signed upload URL, at `<task id>/<uuid>/<safe name>`. The server then checks the real size and the first 4 KB (magic number, Office package, UTF-8 text) and registers the row; on any failure the object is removed | `prepareTaskUpload`, `finishTaskUpload`, `register_task_attachment` | "The file was not uploaded. Try again" |
+| Anyone who fully sees a task and can write may upload to it; registering on the task needs edit rights (`can_edit_task`, mirrors `task_upd`); on a comment only the comment's author. A subtask-only holder sees no files | `register_task_attachment`, `can_edit_task`, `sees_task_fully` | "You cannot add files to this task", "You can only attach files to your own comment on this task" |
+| Rows are written only through the RPCs (no DML policies). The stored size is the real one from storage, not the caller's | `task_attachment_sel`, `register_task_attachment` | n/a |
+| Remove is soft (`deleted_at`, `deleted_by`) and reversible by the uploader or anyone who can edit the task; a removed file is visible only to those people. A registered object can never be deleted from the browser | `remove_task_attachment`, `restore_task_attachment`, `task_files_delete` | "You cannot remove this file", "You cannot restore this file" |
+| `task.attachment_count` and `comment_count` are kept by triggers; adding, removing and restoring a file write `file_added`, `file_removed`, `file_restored` to the task history | `t_task_attachment_count`, `t_task_comment_count` | n/a |
+| Removed rows are purged after 30 days by the service role only; deleted rows (and a deleted task's rows) queue their storage paths in `task_file_orphan` for a service job to delete the objects, then `ack_task_file_orphans` | `purge_task_attachments`, `ack_task_file_orphans` | "Only the scheduled job can purge files" |
+
 ## Not yet implemented (decide with the founder, then add as new migrations + tests)
+- **Task files:** the service job that deletes the queued storage objects, virus scanning and thumbnails (Phase 4); the history label for `file_*` in `lib/schemas/task.ts` (UI phase).
 - **Event `in_progress`:** manual button vs cron at `starts_at`.
 - **Stage `active`:** proposal: institution becomes `active` when >= N distinct cohort students from it
   have a flash/compile in the last 14 days (compute nightly from `ide_user_snapshot`).
@@ -277,3 +300,21 @@ See `ACCESS_MODEL.md` for the full matrix.
 - **Deal Won requires value > 0** unless a `free` flag is set (open question: are workshops free to win labs?).
 - **Soft delete / archive** for institutions, deals, events.
 - **Partner scorecard view.** (DPDP erasure is `forget_ide_user`, 0013; the KPI snapshot is written nightly by `run_job`, 0024.)
+
+## Shared subtasks (0040)
+- `ops.create_shared_task` takes an optional `parent_task`, so one subtask can be given to 2 to 20 people who all own it (any owner can finish it; KPI credit stays with the first person).
+- Attaching to a parent needs the caller to read that parent in full or hold one of its subtasks; otherwise the answer is "The parent task was not found". The usual subtask guard still applies (open parent, no nesting).
+- One person still gets a plain subtask. The app turns several people on a subtask into one shared subtask, never per-person copies.
+
+## AI assistant (0042)
+- Each person brings their own Gemini key. It is encrypted by the app (AES-256-GCM, `AI_KEY_SECRET`, bound to the person's id) before it is saved in `ops.ai_key`. The cipher column cannot be read by any signed-in user; only the `load_ai_key()` function returns it, and only for the caller, so the app can decrypt it for one turn.
+- Chats (`ai_conversation`, `ai_message`) and drafts (`ai_action`) belong to one person and RLS shows them to nobody else, not even the founder. A person has at most 200 chats; a chat holds 600 messages; 60 questions an hour and 400 a day.
+- The assistant never changes data itself. It reads through the person's own session (so it sees only what they can see) and writes a draft (`ai_action`, pending, valid for 24 hours, at most 30 waiting). A draft cannot be edited. Only pressing Confirm runs it, through the same task actions the forms use, so permissions, validation and `task_guard` apply exactly as for a click.
+- Draft states: pending, then running, then done or failed; pending can also be cancelled; failed can be retried. A draft stuck in running for more than 5 minutes can be claimed again. Confirming twice cannot run it twice. Subtask drafts resume where they stopped on a retry.
+- Edit drafts hold only the changed fields and are merged into the live task when confirmed, so a draft never undoes later edits.
+- **Ops assistant (0043).** The assistant covers more than tasks, with the same safety model. Its tools are grouped by area (`lib/ai/areas/*`, `lib/ai/registry.ts`): a person is offered only the tools of areas their role can open (`canAccess`), and write tools only when the matching permission helper passes. The server checks again on every call, so a made-up tool name reaches nothing. Reads run under the person's own session, so RLS decides what they see.
+- Drafted writes are Calendar (schedule, change and cancel a meeting, answer an invite), Workshop events (create, change details, set the team, move status, tick the run sheet) and Sales and outreach (log an activity, create, edit and move a deal). Each confirm calls the existing server action, so every rule above applies unchanged. Meeting and event drafts say on the card who will be notified.
+- Never done by the assistant: leave requests and decisions, approving a meeting request, HR requests and documents, stock changes, archiving, deleting, correcting an institution's stage. Logging an activity never writes a stage (the `on_activity` trigger does). A deal is never moved to Won by the assistant: only the founder can, on the deal page. Completing or cancelling an event, and marking a deal Lost, need the person's own headcount or reason.
+- Leave, inventory and cockpit-style summaries are read only. New draft kinds are listed in the `ai_action.kind` check (0043).
+- Voice mode follows the same rules: the browser gets only a one-use Gemini token (never the key); tools run on the server under the person's session; a spoken "create" confirms only the newest drafts, and only when the person's own latest words were a plain yes (never on the model's say-so).
+

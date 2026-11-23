@@ -10,7 +10,7 @@ export async function NotificationBell({ meId }: { meId: string }) {
   const items = (list.data ?? []).map((n) => ({
     id: n.id,
     kind: n.kind,
-    href: n.task_id ? `/tasks/${n.task_id}` : n.meeting_id ? `/calendar/${n.meeting_id}` : null,
+    href: n.task_id ? `/tasks/${n.task_id}` : n.meeting_id ? `/calendar/${n.meeting_id}` : n.kind === "hr_file" ? "/me/documents" : n.kind === "request_hr_reply" ? "/me/requests" : n.request_id ? "/hr/requests" : null,
     message: n.message,
     at: formatDateTime(n.created_at),
     read: n.read_at !== null,

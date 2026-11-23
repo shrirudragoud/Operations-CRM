@@ -23,6 +23,17 @@ export async function listMessages(supabase: Supabase, requestIds: string[]) {
   return supabase.from("hr_request_message").select(MESSAGE_COLUMNS).in("request_id", requestIds).order("created_at").limit(2000);
 }
 
+/** Files on the given requests. RLS: the person sees their own, HR sees all. */
+export async function listRequestFiles(supabase: Supabase, requestIds: string[]) {
+  if (requestIds.length === 0) return { data: [], error: null };
+  return supabase
+    .from("hr_request_file")
+    .select("id, request_id, message_id, name, size_bytes")
+    .in("request_id", requestIds)
+    .order("created_at")
+    .limit(2000);
+}
+
 export async function listMyChecklist(supabase: Supabase, meId: string) {
   return supabase
     .from("onboarding_task")

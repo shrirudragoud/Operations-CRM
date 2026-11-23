@@ -54,7 +54,7 @@ export default async function hrRequestTests(t) {
   await expectErr('the person cannot leave an internal note', S, say(r1, 'secret', true), 'internal notes');
   await expectErr('another member cannot write on it', O, say(r1, 'hello'), 'write on this request');
   await expectErr('a viewer cannot write on it', V, say(r1, 'hello'), 'write on this request');
-  await expectErr('an empty message is refused', S, say(r1, '  '), 'check');
+  await expectErr('an empty message is refused', S, say(r1, '  '), 'Write a message');
   await expectErr('nobody inserts a message directly', S,
     `insert into ops.hr_request_message (request_id, author_id, body) values ('${r1}', '${S}', 'x')`, 'row-level security');
   await expectErr('a request that does not exist is refused', S, say('00000000-0000-4000-8000-0000000000aa', 'hi'), 'does not exist');
@@ -178,9 +178,116 @@ export default async function hrRequestTests(t) {
   await expectScalar('a finished list shows when it finished', W, `select completed_at is not null from ops.onboarding_progress('${O}') where kind = 'joiner'`, true);
   await expectScalar('a finished list can be started again', W, `select ops.start_onboarding('${O}', 'joiner', null)`, 7);
 
+  console.log('Files on requests (0036)');
+  const { randomUUID } = await import('node:crypto');
+  const file = (owner, name = 'letter.pdf', over = {}) =>
+    ({ path: `${owner}/${randomUUID()}-${name}`, name, mime: 'application/pdf', size: 2048, ...over });
+  const json = (arr) => `'${JSON.stringify(arr)}'::jsonb`;
+  const askWith = (subject, files) => `select ops.create_hr_request('other', '${subject}', '', ${json(files)}) as id`;
+  const sayWith = (id, body, files, { internal = false, keep = false, finish = false } = {}) =>
+    `select ops.add_hr_request_message('${id}', '${body}', ${internal}, ${json(files)}, ${keep}, ${finish})`;
+  const notified = (uid, kind) => `select count(*) from ops.notification where recipient_id = '${uid}' and kind = '${kind}'`;
+
+  await db.exec(`delete from ops.notification where kind like 'request_%'; delete from ops.staff_document where kind = 'letter'; delete from ops.hr_request;`);
+
+  const firstFiles = [file(S, 'id-card.pdf'), file(S, 'photo.png', { mime: 'image/png' })];
+  const rf = (await expectOk('a person asks with two files attached', S, askWith('Visa letter', firstFiles)))?.rows[0].id;
+  await expectScalar('...both files are stored on the request', S, `select count(*) from ops.hr_request_file where request_id = '${rf}'`, 2);
+  await expectScalar('...with no message attached to them', S, `select count(*) from ops.hr_request_file where request_id = '${rf}' and message_id is null`, 2);
+  await expectScalar('HR is told about the new request', W, notified(W, 'request_new'), 1);
+  await expectScalar('...so is the founder', F, notified(F, 'request_new'), 1);
+  await expectScalar('...the person is not told about their own request', S, notified(S, 'request_new'), 0);
+  await expectScalar('...the message says how many files', W, `select message from ops.notification where recipient_id = '${W}' and kind = 'request_new'`, 'Sales asked HR: Visa letter (2 files)');
+
+  console.log('Who sees the files');
+  await expectRows('the person sees their files', S, `select id from ops.hr_request_file`, 2);
+  await expectRows('HR sees them', W, `select id from ops.hr_request_file`, 2);
+  await expectRows('another member sees none', O, `select id from ops.hr_request_file`, 0);
+  await expectRows('a viewer sees none', V, `select id from ops.hr_request_file`, 0);
+  await expectErr('nobody inserts a file row directly', S,
+    `insert into ops.hr_request_file (request_id, staff_id, name, path, mime, size_bytes) values ('${rf}', '${S}', 'x.pdf', '${S}/${randomUUID()}-x.pdf', 'application/pdf', 5)`, 'row-level security');
+
+  console.log('What a file must be');
+  await expectErr('six files are too many', S, sayWith(rf, 'Here', Array.from({ length: 6 }, (_, i) => file(S, `a${i}.pdf`))), 'at most 5');
+  await expectErr('a file in someone else\'s folder is refused', S, sayWith(rf, 'Here', [file(O)]), 'own folder');
+  await expectErr('a path that is not a stored path is refused', S, sayWith(rf, 'Here', [{ ...file(S), path: `${S}/../x.pdf` }]), 'own folder');
+  await expectErr('an executable is refused', S, sayWith(rf, 'Here', [file(S, 'run.pdf', { mime: 'application/x-msdownload' })]), 'PDF or an image');
+  await expectErr('an empty file is refused', S, sayWith(rf, 'Here', [file(S, 'e.pdf', { size: 0 })]), '10 MB');
+  await expectErr('a file over 10 MB is refused', S, sayWith(rf, 'Here', [file(S, 'big.pdf', { size: 10485761 })]), '10 MB');
+  await expectErr('a nameless file is refused', S, sayWith(rf, 'Here', [file(S, 'n.pdf', { name: '  ' })]), 'name');
+  await expectErr('another member cannot attach to it', O, sayWith(rf, 'Here', [file(S)]), 'write on this request');
+  await expectScalar('a refused message leaves nothing behind', S, `select count(*) from ops.hr_request_file where request_id = '${rf}'`, 2);
+  await expectScalar('...nor a message', S, `select count(*) from ops.hr_request_message where request_id = '${rf}'`, 0);
+  await expectErr('a blank message with no file is refused', S, sayWith(rf, '  ', []), 'Write a message');
+
+  console.log('HR replies with a file');
+  const hrFile = file(S, 'draft.pdf');
+  await expectOk('HR replies with a file in the person\'s folder', W, sayWith(rf, 'Draft attached', [hrFile]));
+  await expectScalar('...the person is told', S, notified(S, 'request_hr_reply'), 1);
+  await expectScalar('...the file is tied to the reply', S, `select count(*) from ops.hr_request_file f join ops.hr_request_message m on m.id = f.message_id where f.request_id = '${rf}' and m.author_id = '${W}'`, 1);
+  await expectScalar('...nothing was kept on the record without asking', S, `select count(*) from ops.staff_document where kind = 'letter'`, 0);
+  await expectOk('a file-only reply is allowed', W, sayWith(rf, '', [file(S, 'second.pdf')]));
+  await expectScalar('...it gets a plain body', S, `select count(*) from ops.hr_request_message where request_id = '${rf}' and body = 'Sent a file.'`, 1);
+  const before = await scalar(S, notified(S, 'request_hr_reply'));
+  await expectErr('an internal note cannot carry a file', W, sayWith(rf, 'secret', [file(S)], { internal: true }), 'Internal notes');
+  await expectOk('an internal note without a file is fine', W, sayWith(rf, 'Check the dates', [], { internal: true }));
+  await expectScalar('...and tells the person nothing', S, notified(S, 'request_hr_reply'), before);
+  await expectOk('the person replies with a file', S, sayWith(rf, 'Corrected copy', [file(S, 'fixed.pdf')]));
+  await expectScalar('...HR is told', W, notified(W, 'request_person_reply'), 1);
+  await expectScalar('...the founder too', F, notified(F, 'request_person_reply'), 1);
+  await expectOk('the person asks for a copy anyway', S, sayWith(rf, 'Please keep it', [file(S, 'again.pdf')], { keep: true }));
+  await expectScalar('...a person cannot put papers on their own record that way', S, `select count(*) from ops.staff_document where kind = 'letter'`, 0);
+  await expectErr('a person cannot finish a request', S, sayWith(rf, 'Done', [], { finish: true }), 'Only HR');
+
+  console.log('Opening a file');
+  const dfid = await scalar(W, `select id from ops.hr_request_file where name = 'draft.pdf'`);
+  const fileId = () => `'${dfid}'`;
+  await expectScalar('the person opens their own file', S, `select ops.open_request_file(${fileId('draft.pdf')}) = '${hrFile.path}'`, true);
+  await expectErr('another member cannot open it', O, `select ops.open_request_file(${fileId('draft.pdf')})`, 'can\'t open');
+  await expectErr('a viewer cannot open it', V, `select ops.open_request_file(${fileId('draft.pdf')})`, 'can\'t open');
+  await expectErr('a file that does not exist is refused', S, `select ops.open_request_file('00000000-0000-4000-8000-0000000000cc')`, 'does not exist');
+  const obj = (path, mode) => `select ops.hr_doc_object_ok('${path}', '${mode}')`;
+  await expectScalar('HR cannot read the object before opening it', W, obj(hrFile.path, 'read'), false);
+  await expectScalar('another member cannot read it', O, obj(hrFile.path, 'read'), false);
+  await expectScalar('the person can read it', S, obj(hrFile.path, 'read'), true);
+  await expectOk('HR opens it', W, `select ops.open_request_file(${fileId('draft.pdf')})`);
+  await expectScalar('...the open is in the access log', W, `select count(*) from ops.hr_access_log where actor_id = '${W}' and target_id = '${S}' and what = 'opened document ${hrFile.path}'`, 1);
+  await expectScalar('...the person can see who opened it', S, `select count(*) from ops.hr_access_log where actor_id = '${W}' and what = 'opened document ${hrFile.path}'`, 1);
+  await expectScalar('...and now HR can read the object', W, obj(hrFile.path, 'read'), true);
+  await expectScalar('the person cannot delete a file tied to a request', S, obj(hrFile.path, 'delete'), false);
+  await expectScalar('...neither can HR', W, obj(hrFile.path, 'delete'), false);
+  await expectScalar('a file with no request can still be cleaned up', S, obj(`${S}/${randomUUID()}-stray.pdf`, 'delete'), true);
+
+  console.log('Finishing with a copy on the record');
+  const letter = file(S, 'experience-letter.pdf');
+  await expectOk('HR answers with the letter and keeps a copy', W, sayWith(rf, 'Your letter is attached', [letter], { keep: true, finish: true }));
+  await expectScalar('...the request is done', S, `select state from ops.hr_request where id = '${rf}'`, 'done');
+  await expectScalar('...with the reply as the answer', S, `select resolution from ops.hr_request where id = '${rf}'`, 'Your letter is attached');
+  await expectScalar('...handled by HR', S, `select handled_by from ops.hr_request where id = '${rf}'`, W);
+  await expectScalar('...a letter is on the person\'s record', S, `select count(*) from ops.staff_document where kind = 'letter' and path = '${letter.path}'`, 1);
+  await expectScalar('...already verified', S, `select verified_at is not null and verified_by = '${W}' from ops.staff_document where path = '${letter.path}'`, true);
+  await expectScalar('...titled after the request', S, `select title from ops.staff_document where path = '${letter.path}'`, 'Visa letter');
+  await expectRows('...another member cannot see it', O, `select id from ops.staff_document where path = '${letter.path}'`, 0);
+  await expectScalar('...the person is told the request is answered', S, `select count(*) from ops.notification where recipient_id = '${S}' and message = 'HR answered: Visa letter'`, 1);
+  await expectScalar('...the copy cannot be deleted from storage by the person', S, obj(letter.path, 'delete'), false);
+  await expectErr('the person cannot write on it any more', S, sayWith(rf, 'thanks', []), 'closed');
+  await expectErr('it cannot be answered twice', W, sayWith(rf, 'again', [], { finish: true }), 'already closed');
+  await expectErr('a person cannot add a letter to their own record', S,
+    `select ops.add_staff_document('${S}', 'letter', 'Mine', '${S}/${randomUUID()}-m.pdf', 'application/pdf', 10)`, 'Only HR');
+  await expectOk('HR can add a letter to a record directly', W,
+    `select ops.add_staff_document('${S}', 'letter', 'Relieving letter', '${S}/${randomUUID()}-r.pdf', 'application/pdf', 10)`);
+
+  console.log('Notifications are read-only for the person');
+  await run(S, `update ops.notification set request_id = null where recipient_id = '${S}'`);
+  await expectScalar('...it still points at the request', S, `select count(*) from ops.notification where recipient_id = '${S}' and request_id = '${rf}'`, 3);
+  await expectScalar('another member has none of these', O, `select count(*) from ops.notification where request_id = '${rf}'`, 0);
+  await db.exec(`delete from ops.hr_request where id = '${rf}'`);
+  await expectScalar('deleting the request removes its files', F, `select count(*) from ops.hr_request_file`, 0);
+  await expectScalar('...and its notices', F, `select count(*) from ops.notification where request_id is not null`, 0);
+
   console.log('Audit trail');
   await expectScalar('requests are audited', F, `select count(*) > 0 from ops.audit_log where table_name = 'hr_request'`, true);
   await expectScalar('so are checklist items', F, `select count(*) > 0 from ops.audit_log where table_name = 'onboarding_task'`, true);
 
-  await db.exec(`delete from ops.onboarding_task; delete from ops.hr_request; delete from ops.hr_access_log;`);
+  await db.exec(`delete from ops.notification where kind like 'request_%'; delete from ops.staff_document where kind = 'letter'; delete from ops.onboarding_task; delete from ops.hr_request; delete from ops.hr_access_log;`);
 }

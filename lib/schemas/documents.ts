@@ -12,7 +12,7 @@ export const UPLOAD_TYPES = {
 export type UploadMime = keyof typeof UPLOAD_TYPES;
 export const UPLOAD_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
 
-export const STAFF_DOC_KINDS = ["id_proof", "address_proof", "education", "certificate", "offer_letter", "contract", "payslip", "other"] as const;
+export const STAFF_DOC_KINDS = ["id_proof", "address_proof", "education", "certificate", "offer_letter", "contract", "payslip", "letter", "other"] as const;
 export type StaffDocKind = (typeof STAFF_DOC_KINDS)[number];
 export const STAFF_DOC_LABELS: Record<StaffDocKind, string> = {
   id_proof: "ID proof",
@@ -22,6 +22,7 @@ export const STAFF_DOC_LABELS: Record<StaffDocKind, string> = {
   offer_letter: "Offer letter",
   contract: "Contract",
   payslip: "Payslip",
+  letter: "Letter from HR",
   other: "Other",
 };
 /** What a person can add to their own record; the rest is HR's to add (ops.add_staff_document). */

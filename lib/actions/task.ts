@@ -7,7 +7,7 @@ import { fail, PERMISSION_ERROR, type ActionResult } from "@/lib/errors";
 import { canCreateTask, canWrite, type Me } from "@/lib/permissions";
 import {
   assignTaskSchema, cancelTaskGroupSchema, createTaskSchema, deleteCommentSchema, scheduleTaskSchema, taskCommentSchema,
-  taskIdSchema, taskStatusSchema, updateTaskGroupSchema, updateTaskSchema,
+  taskIdSchema, taskOwnerSchema, taskStatusSchema, updateTaskGroupSchema, updateTaskSchema,
 } from "@/lib/schemas/task";
 import { createClient } from "@/utils/supabase/server";
 
@@ -44,7 +44,8 @@ async function parentOf(supabase: Supabase, id: string) {
   return data?.parent_task_id ?? null;
 }
 
-/** One person gets one task; several people each get their own copy, linked as a group, all or nothing (ops.create_task_group). */
+/** One person gets one task; several people each get their own copy, linked as a group, all or nothing (ops.create_task_group),
+ * or share one task that any of them can finish (ops.create_shared_task). */
 export async function createTask(input: unknown): Promise<ActionResult<{ id: string }>> {
   const c = await caller();
   if ("ok" in c) return c;
@@ -55,6 +56,25 @@ export async function createTask(input: unknown): Promise<ActionResult<{ id: str
 
   const supabase = await createClient();
   const people = [...new Set([...(v.assignee_id ? [v.assignee_id] : []), ...v.also_assignee_ids])];
+  if (people.length > 1 && (v.mode === "shared" || v.parent_task_id)) {
+    const { data: id, error: sharedError } = await supabase.rpc("create_shared_task", {
+      title: v.title,
+      assignees: people,
+      description: v.description ?? undefined,
+      priority: v.priority,
+      due_date: v.due_date ?? undefined,
+      due_time: v.due_time ?? undefined,
+      start_date: v.start_date ?? undefined,
+      estimate_minutes: v.estimate_minutes ?? undefined,
+      department: v.department ?? undefined,
+      category: v.category ?? undefined,
+      parent_task: v.parent_task_id ?? undefined,
+    });
+    if (sharedError) return fail(sharedError, "createSharedTask");
+    if (!id) return { ok: false, error: "The task was not created. Try again." };
+    refresh(id);
+    return { ok: true, data: { id } };
+  }
   if (people.length > 1) {
     const { data: ids, error: groupError } = await supabase.rpc("create_task_group", {
       title: v.title,
@@ -271,7 +291,7 @@ export async function deleteTask(input: unknown): Promise<ActionResult> {
   return { ok: true, data: undefined };
 }
 
-export async function addTaskComment(input: unknown): Promise<ActionResult> {
+export async function addTaskComment(input: unknown): Promise<ActionResult<{ id: string }>> {
   const c = await caller();
   if ("ok" in c) return c;
   if (!canWrite(c.me)) return { ok: false, error: PERMISSION_ERROR };
@@ -279,10 +299,11 @@ export async function addTaskComment(input: unknown): Promise<ActionResult> {
   if (!parsed.success) return invalid(parsed.error);
 
   const supabase = await createClient();
-  const { error } = await supabase.from("task_comment").insert({ task_id: parsed.data.task_id, body: parsed.data.body, mentions: parsed.data.mentions });
+  const { data, error } = await supabase
+    .from("task_comment").insert({ task_id: parsed.data.task_id, body: parsed.data.body, mentions: parsed.data.mentions }).select("id").single();
   if (error) return fail(error, "addTaskComment");
   revalidatePath(`/tasks/${parsed.data.task_id}`);
-  return { ok: true, data: undefined };
+  return { ok: true, data: { id: data.id } };
 }
 
 export async function deleteTaskComment(input: unknown): Promise<ActionResult> {
@@ -296,5 +317,33 @@ export async function deleteTaskComment(input: unknown): Promise<ActionResult> {
   if (error) return fail(error, "deleteTaskComment");
   if (!data) return { ok: false, error: "Only the author or a founder can remove a comment." };
   revalidatePath(`/tasks/${parsed.data.task_id}`);
+  return { ok: true, data: undefined };
+}
+
+/** Add a person to a shared task. Its creator, a department lead or a founder (ops.add_task_owner). */
+export async function addTaskOwner(input: unknown): Promise<ActionResult> {
+  const c = await caller();
+  if ("ok" in c) return c;
+  if (!canWrite(c.me)) return { ok: false, error: PERMISSION_ERROR };
+  const parsed = taskOwnerSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error);
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("add_task_owner", { p_task: parsed.data.task_id, p_staff: parsed.data.staff_id });
+  if (error) return fail(error, "addTaskOwner");
+  refresh(parsed.data.task_id);
+  return { ok: true, data: undefined };
+}
+
+/** Take a person off a shared task. A shared task keeps at least two owners (ops.remove_task_owner). */
+export async function removeTaskOwner(input: unknown): Promise<ActionResult> {
+  const c = await caller();
+  if ("ok" in c) return c;
+  if (!canWrite(c.me)) return { ok: false, error: PERMISSION_ERROR };
+  const parsed = taskOwnerSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error);
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remove_task_owner", { p_task: parsed.data.task_id, p_staff: parsed.data.staff_id });
+  if (error) return fail(error, "removeTaskOwner");
+  refresh(parsed.data.task_id);
   return { ok: true, data: undefined };
 }

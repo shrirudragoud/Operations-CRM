@@ -14,7 +14,10 @@ const LOCAL_KEY = process.env.E2E_SUPABASE_PUBLISHABLE_KEY ?? "sb_publishable_AC
 if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(LOCAL_URL)) {
   throw new Error(`E2E_SUPABASE_URL must be a local stack, got ${LOCAL_URL}`);
 }
-const env = `NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_SUPABASE_URL=${LOCAL_URL} NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${LOCAL_KEY}`;
+// The assistant's e2e talks to a stub Gemini server (e2e/gemini-stub.ts) with a throwaway vault key.
+const STUB_PORT = Number(process.env.E2E_GEMINI_PORT ?? 3191);
+const AI_ENV = `AI_KEY_SECRET=ZTJlLWFpLWtleS1zZWNyZXQtMzItYnl0ZXMhISEhISE= GEMINI_API_BASE=http://127.0.0.1:${STUB_PORT}`;
+const env = `${AI_ENV} NEXT_DIST_DIR=.next-e2e NEXT_PUBLIC_SUPABASE_URL=${LOCAL_URL} NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${LOCAL_KEY}`;
 
 export default defineConfig({
   testDir: "e2e",

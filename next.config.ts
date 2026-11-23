@@ -5,6 +5,8 @@ import type { NextConfig } from "next";
 // styles/scripts unless nonces are wired up (tracked in docs/HANDOFF.md known gaps).
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseWs = supabaseUrl.replace(/^https:/, "wss:");
+// Voice mode: the browser opens a Gemini Live socket directly with a short-lived token (never the key).
+const liveWs = (process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com").replace(/\/+$/, "").replace(/^http/, "ws");
 const isDev = process.env.NODE_ENV !== "production";
 
 const csp = [
@@ -13,7 +15,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseUrl} https://lh3.googleusercontent.com`,
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseUrl} ${supabaseWs}`,
+  `connect-src 'self' ${supabaseUrl} ${supabaseWs} ${liveWs}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -29,8 +31,8 @@ const nextConfig: NextConfig = {
   // partial prefetching are off on purpose (docs/DECISIONS.md D13).
   cacheComponents: false,
   poweredByHeader: false,
-  // Document uploads (HR papers, policies) arrive through Server Actions: up to 10 MB plus the form fields.
-  experimental: { serverActions: { bodySizeLimit: "11mb" } },
+  // Uploads arrive through Server Actions: HR papers are one file of up to 10 MB; a request reply can carry 5 (50 MB) plus fields.
+  experimental: { serverActions: { bodySizeLimit: "52mb" } },
   turbopack: {
     rules: {
       "*.css": {
@@ -49,7 +51,7 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
         ],
       },
     ];

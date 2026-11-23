@@ -23,7 +23,7 @@ test("founder claims the seeded invite and invites a member and a partner", asyn
   await expect(page).toHaveURL("/");
   await expect(page.getByText("Welcome to Hard-Code Ops")).toBeVisible();
   expect(await sidebarLabels(page)).toEqual([
-    "My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Attendance", "Team workload", "Reports", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
+    "My space", "Assistant", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Attendance", "Team workload", "Reports", "Feedback", "Outreach", "Sales", "Workshop", "Inventory",
     "Training", "Product", "Community", "People & HR", "Cockpit", "Team", "Audit log",
   ]);
 
@@ -31,7 +31,7 @@ test("founder claims the seeded invite and invites a member and a partner", asyn
   await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
   // Member in Sales. Submitting without a department shows the rule next to the field.
-  await page.getByRole("button", { name: "Invite" }).click();
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Email").fill(MEMBER);
   await dialog.getByLabel("Name (optional)").fill("Meera Member");
@@ -40,9 +40,10 @@ test("founder claims the seeded invite and invites a member and a partner", asyn
   await dialog.getByLabel("Sales").check();
   await dialog.getByRole("button", { name: "Create invite" }).click();
   await expect(page.getByText(`Invite created for ${MEMBER}`)).toBeVisible();
+  await expect(dialog).toBeHidden();
 
   // Partner: departments are hidden for this role.
-  await page.getByRole("button", { name: "Invite" }).click();
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
   await dialog.getByLabel("Email").fill(PARTNER);
   await dialog.getByLabel("Role").click();
   await page.getByRole("option", { name: "Partner" }).click();
@@ -69,6 +70,7 @@ test("the last founder cannot demote or deactivate themselves", async ({ page })
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("alert")).toHaveText("There must be at least one active founder");
   await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 
   await me.getByRole("button", { name: /Actions for/ }).click();
   await page.getByRole("menuitem", { name: "Deactivate" }).click();
@@ -81,7 +83,7 @@ test("the last founder cannot demote or deactivate themselves", async ({ page })
 test("member sees only shared areas plus their department", async ({ page }) => {
   await signInWithMagicLink(page, MEMBER);
   await expect(page).toHaveURL("/");
-  expect(await sidebarLabels(page)).toEqual(["My space", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Feedback", "Sales"]);
+  expect(await sidebarLabels(page)).toEqual(["My space", "Assistant", "My day", "Calendar", "Institutions", "Tasks", "Timesheet", "Feedback", "Sales"]);
   await page.goto("/team");
   await expect(page.getByText("You don't have access to team admin")).toBeVisible();
   await page.goto("/inventory");

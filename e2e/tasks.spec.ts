@@ -86,6 +86,7 @@ test("blocked and cancelled need a reason, and the reason is shown", async ({ br
   await page.getByRole("dialog").getByRole("button", { name: "Mark blocked" }).click();
   await expect.poll(() => one(`select status || ':' || blocked_reason from ops.task where id = '${id}'`)).toBe("blocked:Waiting for cables");
   await expect(page.getByRole("alert").filter({ hasText: "Waiting for cables" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeHidden();
   await page.getByRole("button", { name: "Unblock" }).click();
   await expect.poll(() => one(`select status || ':' || coalesce(blocked_reason, 'none') from ops.task where id = '${id}'`)).toBe("doing:none");
 });

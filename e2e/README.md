@@ -4,7 +4,7 @@ Run against a local Supabase stack and a production build. They reset the local 
 so never point them at a hosted project (the helpers only use `127.0.0.1` URLs by default).
 
 ```bash
-npx supabase start -x studio,imgproxy,vector,logflare,edge-runtime,realtime,storage-api,postgres-meta,supavisor
+npx supabase start -x studio,imgproxy,vector,logflare,edge-runtime,realtime,postgres-meta,supavisor
 ```
 ```bash
 npx playwright test --trace off

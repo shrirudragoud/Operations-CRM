@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireMe } from "@/lib/auth";
 import { todayIST } from "@/lib/format";
 import { canCheckIn, DEPARTMENT_LABELS, ROLE_LABELS, isHr } from "@/lib/permissions";
+import { mineOr, ownedTaskIds } from "@/lib/queries/tasks";
 import { createClient } from "@/utils/supabase/server";
 import { StatCard } from "../my-day-widgets";
 
@@ -22,7 +23,8 @@ export default async function MeOverviewPage() {
   const me = await requireMe();
   const supabase = await createClient();
   const today = todayIST();
-  const mine = () => supabase.from("task").select("id", { count: "exact", head: true }).eq("assignee_id", me.id).in("status", OPEN);
+  const owned = await ownedTaskIds(supabase, me.id);
+  const mine = () => supabase.from("task").select("id", { count: "exact", head: true }).or(mineOr(me.id, owned)).in("status", OPEN);
   const [open, overdue, dueToday] = await Promise.all([
     mine(),
     mine().lt("due_date", today),

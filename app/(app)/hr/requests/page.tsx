@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { AccessDenied } from "@/components/access-denied";
 import { LoadError } from "@/components/load-error";
 import { PageHeader } from "@/components/page-header";
-import { RequestThread, StateBadge, type ThreadMessage } from "@/components/requests/request-thread";
+import { AttachmentList } from "@/components/requests/attachments";
+import { RequestThread, StateBadge } from "@/components/requests/request-thread";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireArea } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
-import { listAllRequests, listMessages } from "@/lib/queries/hr-requests";
+import { buildThreads } from "@/lib/request-threads";
+import { listAllRequests, listMessages, listRequestFiles } from "@/lib/queries/hr-requests";
 import { REQUEST_LABELS, type RequestKind, type RequestState } from "@/lib/schemas/hr-requests";
 import { createClient } from "@/utils/supabase/server";
 
@@ -23,13 +25,9 @@ export default async function HrRequestsPage() {
   const requests = await listAllRequests(supabase);
   if (requests.error) return <>{header}<LoadError what="the requests" /></>;
   const rows = requests.data ?? [];
-  const messages = await listMessages(supabase, rows.map((r) => r.id));
-  const byRequest = new Map<string, ThreadMessage[]>();
-  for (const m of messages.data ?? []) {
-    const list = byRequest.get(m.request_id) ?? [];
-    list.push({ id: m.id, body: m.body, internal: m.internal, created_at: m.created_at, author: m.author?.full_name ?? null });
-    byRequest.set(m.request_id, list);
-  }
+  const ids = rows.map((r) => r.id);
+  const [messages, files] = await Promise.all([listMessages(supabase, ids), listRequestFiles(supabase, ids)]);
+  const { threads, onRequest } = buildThreads(messages.data ?? [], files.data ?? []);
 
   const waiting = rows.filter((r) => r.state === "open" || r.state === "in_progress").sort((a, b) => a.created_at.localeCompare(b.created_at));
   const closed = rows.filter((r) => r.state === "done" || r.state === "rejected");
@@ -45,7 +43,8 @@ export default async function HrRequestsPage() {
       </div>
       {r.details && <p className="text-sm whitespace-pre-wrap">{r.details}</p>}
       {r.resolution && <p className="text-sm"><span className="font-medium">Answer:</span> {r.resolution}</p>}
-      <RequestThread requestId={r.id} subject={r.subject} state={r.state as RequestState} messages={byRequest.get(r.id) ?? []} hr />
+      <AttachmentList files={onRequest.get(r.id) ?? []} label={`Files sent with ${r.subject}`} />
+      <RequestThread requestId={r.id} subject={r.subject} state={r.state as RequestState} messages={threads.get(r.id) ?? []} hr />
     </section>
   );
 

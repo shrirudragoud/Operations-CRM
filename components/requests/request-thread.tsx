@@ -8,11 +8,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { AttachmentList, FilePicker } from "@/components/requests/attachments";
 import { addRequestMessage, setRequestState } from "@/lib/actions/hr-requests";
 import { formatDateTime } from "@/lib/format";
+import type { ThreadMessage } from "@/lib/request-threads";
 import { REQUEST_STATE_LABELS, type RequestState } from "@/lib/schemas/hr-requests";
-
-export type ThreadMessage = { id: number; body: string; internal: boolean; created_at: string; author: string | null };
 
 export function StateBadge({ state }: { state: RequestState }) {
   const variant = state === "done" ? "default" : state === "rejected" ? "destructive" : state === "in_progress" ? "secondary" : "outline";
@@ -24,19 +24,30 @@ export function RequestThread({
 }: { requestId: string; subject: string; state: RequestState; messages: ThreadMessage[]; hr: boolean }) {
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [keepCopy, setKeepCopy] = useState(true);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const closed = state === "done" || state === "rejected";
   const id = `rq-${requestId}`;
 
-  function send() {
+  function send(finish = false) {
     setError(null);
+    const form = new FormData();
+    form.set("request_id", requestId);
+    form.set("body", body);
+    form.set("internal", String(internal));
+    form.set("finish", String(finish));
+    form.set("keep_copy", String(hr && !internal && files.length > 0 && keepCopy));
+    if (!internal) for (const f of files) form.append("files", f);
     start(async () => {
-      const res = await addRequestMessage({ request_id: requestId, body, internal });
+      const res = await addRequestMessage(form);
       if (!res.ok) return setError(res.error);
+      toast.success(finish ? "Answer sent" : files.length > 0 ? "Sent with your files" : "Message sent");
       setBody("");
       setInternal(false);
+      setFiles([]);
     });
   }
 
@@ -62,6 +73,9 @@ export function RequestThread({
                 {m.internal && <Badge variant="outline">Internal note</Badge>}
               </div>
               <p className="whitespace-pre-wrap">{m.body}</p>
+              {m.files.length > 0 && (
+                <div className="pt-2"><AttachmentList files={m.files} label={`Files from ${m.author ?? "someone"}`} /></div>
+              )}
             </li>
           ))}
         </ul>
@@ -79,9 +93,23 @@ export function RequestThread({
               <FieldLabel htmlFor={`${id}-internal`}>Internal note, the person won&apos;t see it</FieldLabel>
             </Field>
           )}
-          <Button onClick={send} disabled={pending || body.trim() === ""} className="w-fit" aria-label={`Send message on ${subject}`}>
-            {pending && <Spinner />} Send message
-          </Button>
+          {!internal && <FilePicker files={files} onChange={setFiles} disabled={pending} label={hr ? "Attach files for the person" : "Attach files for HR"} />}
+          {hr && !internal && files.length > 0 && (
+            <Field orientation="horizontal">
+              <Checkbox id={`${id}-keep`} checked={keepCopy} onCheckedChange={(on) => setKeepCopy(on === true)} />
+              <FieldLabel htmlFor={`${id}-keep`}>Also keep a copy in their documents</FieldLabel>
+            </Field>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => send()} disabled={pending || (body.trim() === "" && files.length === 0)} className="w-fit" aria-label={`Send message on ${subject}`}>
+              {pending && <Spinner />} {pending && files.length > 0 ? "Uploading" : "Send message"}
+            </Button>
+            {hr && !closed && !internal && (
+              <Button variant="outline" onClick={() => send(true)} disabled={pending || (body.trim() === "" && files.length === 0)} aria-label={`Answer ${subject} with this reply`}>
+                Send as the answer
+              </Button>
+            )}
+          </div>
         </div>
       )}
 

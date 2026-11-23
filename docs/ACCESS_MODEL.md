@@ -100,6 +100,23 @@ policy already lets them see.
 Write `lib/permissions.ts` as a pure function `canAccess(me, area)` used by sidebar and route guards, with
 unit tests, and mirror (not replace) the RLS above.
 
+## Ops assistant tool gating (`lib/ai/registry.ts`)
+The assistant reads and drafts only what the person's own role may. A tool is offered when its area passes
+`canAccess` and, for a draft tool, its permission helper passes. `runTool` repeats the check on every call.
+Confirming a draft calls the normal server action, which checks permissions and RLS again.
+| Area (gate) | Read tools | Draft tools (permission helper) |
+| --- | --- | --- |
+| Tasks (everyone who can open tasks) | find_people, search_tasks, get_task, workload_overview, my_day | the 7 task drafts (existing task permissions) |
+| Calendar (`calendar`, not partners) | whats_on, get_meeting, check_busy, waiting_for_me | schedule, change and cancel a meeting, answer an invite (`canScheduleMeeting`, `canManageMeeting`) |
+| Workshop (`workshop`) | search_events, get_event, available_trainers | create event, change event, set team, event status, run sheet item (`canManageEvents`) |
+| Institutions (`institutions`) | search_institutions, get_institution | none |
+| Sales (`sales`) | search_deals, get_deal, pipeline_summary | create, edit and move a deal (`canManageDeals`; partner: own deals only; Won refused for everyone) |
+| Outreach (`outreach`) | follow_ups | log an activity (`canLogActivity`) |
+| Leave (all staff) | leave_balance, my_leave_requests, who_is_away, pending_leave_for_me (managers) | none |
+| Inventory (`inventory`) | stock_levels, low_stock, event_reservations | none |
+| Insights (`cockpit` / `reports`) | ops_summary | none |
+Partners are offered only institutions, deals and outreach; viewers get reads and no draft tools.
+
 ## Team admin RPCs (`0010`, founder only, used by `/team`)
 `invite_staff(email, role, departments, name)` (also re-invite/extend), `revoke_invite(id)`,
 `update_staff_access(staff, role, departments, is_active)`. They validate the role shape (partner: no

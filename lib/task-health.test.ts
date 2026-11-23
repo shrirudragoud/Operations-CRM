@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { onTimeRate, summarizeHealth, taskHealth, type HealthTask } from "./task-health";
+import { onTimeRate, subtaskRollup, summarizeHealth, taskHealth, type HealthTask } from "./task-health";
 
 // 10 Nov 2026, 10:00 IST.
 const NOW = new Date("2026-11-10T04:30:00Z");
@@ -96,6 +96,53 @@ describe("taskHealth: at risk", () => {
 
   it("does not flag an active task with nothing wrong", () => {
     expect(taskHealth(t({ due_date: "2026-11-12", updated_at: NOW.toISOString() }), NOW).key).toBe("soon");
+  });
+});
+
+describe("taskHealth: roll-up from subtasks", () => {
+  it("puts a parent that is due in ten days at risk when a subtask is overdue", () => {
+    const h = taskHealth(t({ due_date: "2026-11-20", subOverdue: 2 }), NOW);
+    expect(h).toMatchObject({ key: "at_risk", level: 2, tone: "amber", label: "At risk · in 10 days" });
+    expect(h.reasons).toEqual(["2 subtasks overdue"]);
+  });
+
+  it("names a single blocked subtask in the singular", () => {
+    const h = taskHealth(t({ due_date: "2026-11-20", subBlocked: 1 }), NOW);
+    expect(h.key).toBe("at_risk");
+    expect(h.reasons).toEqual(["1 subtask blocked"]);
+  });
+
+  it("adds the roll-up to the reasons already found near the deadline", () => {
+    const h = taskHealth(t({ status: "todo", due_date: "2026-11-11", subOverdue: 1, subBlocked: 1 }), NOW);
+    expect(h.key).toBe("at_risk");
+    expect(h.reasons).toEqual(expect.arrayContaining(["Not started", "1 subtask overdue", "1 subtask blocked"]));
+  });
+
+  it("keeps a late parent red and lists the subtasks in the reason", () => {
+    const h = taskHealth(t({ due_date: "2026-11-08", subOverdue: 3 }), NOW);
+    expect(h).toMatchObject({ key: "overdue", level: 3 });
+    expect(h.reasons).toEqual(["3 subtasks overdue"]);
+  });
+
+  it("flags a parent with no deadline when a subtask is late, and stays quiet otherwise", () => {
+    expect(taskHealth(t({ due_date: null, subOverdue: 1 }), NOW)).toMatchObject({ key: "at_risk", reasons: ["1 subtask overdue"] });
+    expect(taskHealth(t({ due_date: null }), NOW).key).toBe("no_date");
+  });
+
+  it("ignores subtask trouble once the parent is finished", () => {
+    expect(taskHealth(t({ status: "done", due_date: "2026-11-20", subOverdue: 1 }), NOW).key).toBe("finished");
+  });
+
+  it("counts open, overdue and blocked subtasks and skips finished ones", () => {
+    const subs = [
+      { status: "todo", due_date: "2026-11-09" },
+      { status: "blocked", due_date: "2026-11-30" },
+      { status: "doing", due_date: "2026-11-10", due_time: "09:00" },
+      { status: "doing", due_date: "2026-11-10", due_time: "17:00" },
+      { status: "done", due_date: "2026-11-01" },
+      { status: "cancelled", due_date: "2026-11-01" },
+    ];
+    expect(subtaskRollup(subs, NOW)).toEqual({ subOpen: 4, subOverdue: 2, subBlocked: 1 });
   });
 });
 

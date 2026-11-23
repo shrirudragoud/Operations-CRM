@@ -1,4 +1,6 @@
+@layer ui-sdk;
 @import "tailwindcss";
+@import "@ui-sdk/core/web.css" layer(components);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
@@ -81,6 +83,20 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  color-scheme: light;
+  --ui-background: var(--background);
+  --ui-foreground: var(--foreground);
+  --ui-muted: var(--muted);
+  --ui-muted-foreground: var(--muted-foreground);
+  --ui-border: var(--border);
+  --ui-input: var(--input);
+  --ui-primary: var(--primary);
+  --ui-primary-foreground: var(--primary-foreground);
+  --ui-destructive: var(--destructive);
+  --ui-ring: var(--ring);
+  --ui-ring-border: var(--ring);
+  --ui-radius: calc(var(--radius) * 0.55);
+  --ui-font-size: 0.875rem;
 }
 
 .dark {
@@ -115,6 +131,37 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  color-scheme: dark;
+}
+
+/* ui-sdk's web.css ships global element styles; restore Tailwind preflight for them so shadcn markup keeps its look. */
+@layer components {
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  a:focus-visible,
+  summary:focus-visible,
+  [data-slot]:focus-visible {
+    outline: revert-layer;
+  }
+  hr {
+    align-self: auto;
+    height: 0;
+    margin: 0;
+    border: 0 solid;
+    border-top-width: 1px;
+    background: none;
+  }
+  code,
+  kbd {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-family: var(--font-mono);
+    font-size: 1em;
+  }
 }
 
 @layer base {

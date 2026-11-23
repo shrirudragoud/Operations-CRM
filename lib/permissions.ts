@@ -34,6 +34,7 @@ export const AREAS = [
   "reports",
   "feedback",
   "me",
+  "assistant",
   "hr",
   "outreach",
   "sales",
@@ -52,7 +53,7 @@ const FOUNDER_ONLY: ReadonlySet<Area> = new Set(["team", "audit_log"]);
 // Areas a partner may open: their own institutions, activities (Outreach) and deals (Sales).
 const PARTNER_AREAS: ReadonlySet<Area> = new Set(["my_work", "institutions", "outreach", "sales"]);
 // Areas every internal role sees regardless of department.
-const SHARED_AREAS: ReadonlySet<Area> = new Set(["my_work", "calendar", "institutions", "tasks", "timesheet", "feedback", "me"]);
+const SHARED_AREAS: ReadonlySet<Area> = new Set(["my_work", "calendar", "institutions", "tasks", "timesheet", "feedback", "me", "assistant"]);
 // Department that unlocks each workspace. Inventory belongs to the Workshop department.
 const AREA_DEPARTMENT: Partial<Record<Area, Department>> = {
   outreach: "outreach",
@@ -153,7 +154,12 @@ type TaskScope = {
   assignee_id: string | null;
   /** The assignee's departments, when the page has them: a lead of the assignee manages a task with no department. */
   assignee_departments?: readonly Department[] | null;
+  /** Everyone who owns a shared task (the first owner included). */
+  owner_ids?: readonly string[] | null;
 };
+
+const isOwner = (me: Me, task: TaskScope) => !!task.owner_ids?.includes(me.id);
+const isOwnedByMany = (task: TaskScope) => (task.owner_ids?.length ?? 0) > 1;
 
 function inTaskDepartment(me: Me, task: TaskScope): boolean {
   return task.department !== null && inDept(me, task.department);
@@ -170,7 +176,7 @@ function leadsTaskAssignee(me: Me, task: TaskScope): boolean {
 export function canUpdateTask(me: Me | null, task: TaskScope & { created_by?: string | null }): boolean {
   if (!me || !canWrite(me)) return false;
   if (task.created_by === me.id) return true;
-  return me.role === "founder" || inTaskDepartment(me, task) || task.assignee_id === me.id || leadsTaskAssignee(me, task);
+  return me.role === "founder" || inTaskDepartment(me, task) || task.assignee_id === me.id || isOwner(me, task) || leadsTaskAssignee(me, task);
 }
 
 type TaskRef = TaskScope & {
@@ -199,7 +205,7 @@ export function canEditTaskDetails(me: Me | null, task: TaskRef): boolean {
 /** Due date, priority, estimate and status: whoever can update the task (task_upd). */
 export function canScheduleTask(me: Me | null, task: TaskRef): boolean {
   if (!me || !canWrite(me)) return false;
-  return inTaskDepartment(me, task) || task.assignee_id === me.id || task.created_by === me.id || me.role === "founder" || leadsTaskAssignee(me, task);
+  return inTaskDepartment(me, task) || task.assignee_id === me.id || isOwner(me, task) || task.created_by === me.id || me.role === "founder" || leadsTaskAssignee(me, task);
 }
 
 /** Hand the task to someone else: managers. Others may only claim an unassigned task or decline their own. */
@@ -212,11 +218,11 @@ export function canClaimTask(me: Me | null, task: TaskRef): boolean {
 }
 
 export function canDeclineTask(me: Me | null, task: TaskRef): boolean {
-  return !!me && canWrite(me) && task.assignee_id === me.id && !canManageTask(me, task);
+  return !!me && canWrite(me) && task.assignee_id === me.id && !isOwnedByMany(task) && !canManageTask(me, task);
 }
 
 export function canAcceptTask(me: Me | null, task: TaskRef & { accepted_at: string | null }): boolean {
-  return !!me && canWrite(me) && task.assignee_id === me.id && task.accepted_at === null;
+  return !!me && canWrite(me) && (task.assignee_id === me.id || isOwner(me, task)) && task.accepted_at === null;
 }
 
 /** Reopen a done or cancelled task: managers, or whoever finished it (ops.task_guard). */

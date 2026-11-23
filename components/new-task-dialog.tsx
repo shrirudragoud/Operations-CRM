@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/react/radio";
 import { PlusIcon } from "lucide-react";
 import { DateField, TimeField } from "@/components/date-field";
+import { PeoplePicker } from "@/components/people-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -20,12 +21,11 @@ import { createTask } from "@/lib/actions/task";
 import { DEPARTMENTS, DEPARTMENT_LABELS, type Department } from "@/lib/permissions";
 import {
   createTaskSchema, MAX_TASK_GROUP, PRIORITIES, PRIORITY_LABELS, TASK_CATEGORIES, TASK_CATEGORY_LABELS,
-  type CreateTaskInput, type CreateTaskValues,
+  type CreateTaskInput, type CreateTaskValues, type TaskMode,
 } from "@/lib/schemas/task";
 
 export type StaffOption = { id: string; full_name: string; departments?: Department[] };
 
-const UNASSIGNED = "unassigned";
 const NONE = "none";
 
 type Props = {
@@ -65,17 +65,19 @@ export function NewTaskButton({ owners, defaultDepartment = null, meId, parentTa
 function TaskForm({ owners, defaultDepartment = null, meId, parentTaskId, entity, onDone }: Omit<Props, "label" | "variant"> & { onDone: () => void }) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
   const form = useForm<CreateTaskInput, unknown, CreateTaskValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
-      title: "", description: "", department: defaultDepartment ?? "", category: "", assignee_id: "", also_assignee_ids: [], start_date: "", due_date: "", due_time: "",
+      title: "", description: "", department: defaultDepartment ?? "", category: "", assignee_id: "", also_assignee_ids: [], mode: "separate", start_date: "", due_date: "", due_time: "",
       priority: "3", estimate_minutes: "", parent_task_id: parentTaskId ?? "",
       entity_type: entity?.type ?? null, entity_id: entity?.id ?? "",
     },
   });
-  const { errors, isSubmitting } = form.formState;
+  const { errors, isSubmitting, isSubmitted } = form.formState;
   const first = useWatch({ control: form.control, name: "assignee_id" });
+  const also = useWatch({ control: form.control, name: "also_assignee_ids" });
+  const mode = useWatch({ control: form.control, name: "mode" }) ?? "separate";
+  const chosen = [first, ...(also ?? [])].filter(Boolean) as string[];
 
   async function onSubmit() {
     setServerError(null);
@@ -87,7 +89,7 @@ function TaskForm({ owners, defaultDepartment = null, meId, parentTaskId, entity
       return;
     }
     const people = (form.getValues("also_assignee_ids") ?? []).length + (form.getValues("assignee_id") ? 1 : 0);
-    toast.success(parentTaskId ? "Subtask added" : people > 1 ? `${people} tasks created, one for each person` : "Task created");
+    toast.success(parentTaskId ? (people > 1 ? `Subtask shared by ${people} people` : "Subtask added") : people > 1 ? (form.getValues("mode") === "shared" ? `Shared task created for ${people} people` : `${people} tasks created, one for each person`) : "Task created");
     onDone();
     if (!parentTaskId) router.push(`/tasks/${res.data.id}`);
   }
@@ -112,28 +114,50 @@ function TaskForm({ owners, defaultDepartment = null, meId, parentTaskId, entity
           <FieldError errors={[errors.description]} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field data-invalid={!!errors.assignee_id}>
+          <Field data-invalid={!!errors.assignee_id || !!errors.also_assignee_ids}>
             <FieldLabel htmlFor="task-assignee">Assign to</FieldLabel>
-            <Controller
-              control={form.control}
-              name="assignee_id"
-              render={({ field }) => (
-                <Select
-                  value={field.value || UNASSIGNED}
-                  onValueChange={(v) => {
-                    field.onChange(v === UNASSIGNED ? "" : v);
-                    form.setValue("also_assignee_ids", (form.getValues("also_assignee_ids") ?? []).filter((x) => x !== v));
-                  }}
-                >
-                  <SelectTrigger id="task-assignee" className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={UNASSIGNED}>Unassigned (team queue)</SelectItem>
-                    {owners.map((o) => <SelectItem key={o.id} value={o.id}>{o.id === meId ? `${o.full_name} (me)` : o.full_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
+            <PeoplePicker
+              id="task-assignee"
+              people={owners}
+              meId={meId}
+              value={chosen}
+              max={entity ? 1 : MAX_TASK_GROUP}
+              placeholder="Unassigned (team queue)"
+              invalid={!!errors.assignee_id || !!errors.also_assignee_ids}
+              onChange={(ids) => {
+                form.setValue("assignee_id", ids[0] ?? "", { shouldValidate: isSubmitted });
+                form.setValue("also_assignee_ids", ids.slice(1), { shouldValidate: isSubmitted });
+              }}
             />
-            <FieldError errors={[errors.assignee_id]} />
+            <FieldDescription>
+              {chosen.length === 0
+                ? "Nobody picked: it goes to the team queue for anyone to take."
+                : chosen.length === 1
+                  ? "It is given to this person."
+                  : parentTaskId
+                    ? `One subtask owned by all ${chosen.length} people. It is finished when any one of them finishes it.`
+                  : mode === "shared"
+                    ? `One task owned by all ${chosen.length} people. It is finished when any one of them finishes it.`
+                    : `Each of the ${chosen.length} people gets their own task to finish on their own time.`}
+            </FieldDescription>
+            {chosen.length > 1 && !parentTaskId && (
+              <RadioGroup
+                aria-label="How it is given"
+                value={mode}
+                onValueChange={(m) => form.setValue("mode", m as TaskMode)}
+                className="mt-1 gap-2"
+              >
+                <label className="flex items-start gap-2 text-sm">
+                  <Radio value="separate" className="mt-0.5"><RadioIndicator /></Radio>
+                  <span><span className="font-medium">Everyone does their own</span><br /><span className="text-muted-foreground text-xs">Each person gets a copy and ticks it off separately.</span></span>
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <Radio value="shared" className="mt-0.5"><RadioIndicator /></Radio>
+                  <span><span className="font-medium">One shared task</span><br /><span className="text-muted-foreground text-xs">Everyone owns the same task. Whoever gets it done finishes it for all.</span></span>
+                </label>
+              </RadioGroup>
+            )}
+            <FieldError errors={[errors.assignee_id, errors.also_assignee_ids as { message?: string } | undefined]} />
           </Field>
           <Field data-invalid={!!errors.department}>
             <FieldLabel htmlFor="task-department">Department</FieldLabel>
@@ -154,47 +178,6 @@ function TaskForm({ owners, defaultDepartment = null, meId, parentTaskId, entity
             <FieldError errors={[errors.department]} />
           </Field>
         </div>
-        {!parentTaskId && !entity && (
-          <Field data-invalid={!!errors.also_assignee_ids}>
-            <FieldLabel htmlFor="task-also-filter">Also give it to (optional)</FieldLabel>
-            <Controller
-              control={form.control}
-              name="also_assignee_ids"
-              render={({ field }) => {
-                const picked = field.value ?? [];
-                const shown = owners.filter((o) => o.id !== first && o.full_name.toLowerCase().includes(filter.trim().toLowerCase()));
-                return (
-                  <>
-                    <Input id="task-also-filter" placeholder="Search by name" value={filter} onChange={(e) => setFilter(e.target.value)} autoComplete="off" />
-                    <ul className="max-h-36 space-y-1 overflow-y-auto rounded-md border p-2" aria-label="More people">
-                      {shown.map((o) => {
-                        const id = `task-also-${o.id}`;
-                        return (
-                          <li key={o.id} className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              id={id}
-                              checked={picked.includes(o.id)}
-                              disabled={!picked.includes(o.id) && picked.length + (first ? 1 : 0) >= MAX_TASK_GROUP}
-                              onCheckedChange={(on) => field.onChange(on ? [...picked, o.id] : picked.filter((x) => x !== o.id))}
-                            />
-                            <label htmlFor={id}>{o.id === meId ? `${o.full_name} (me)` : o.full_name}</label>
-                          </li>
-                        );
-                      })}
-                      {shown.length === 0 && <li className="text-muted-foreground text-sm">Nobody matches.</li>}
-                    </ul>
-                    <FieldDescription>
-                      {picked.length > 0
-                        ? `Each of the ${picked.length + (first ? 1 : 0)} people gets their own task to finish on their own time.`
-                        : "Everyone you pick gets their own copy of the task."}
-                    </FieldDescription>
-                  </>
-                );
-              }}
-            />
-            <FieldError errors={[errors.also_assignee_ids as { message?: string } | undefined]} />
-          </Field>
-        )}
         <Field data-invalid={!!errors.category}>
           <FieldLabel htmlFor="task-category">Category</FieldLabel>
           <Controller

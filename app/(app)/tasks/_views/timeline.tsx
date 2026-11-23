@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { todayIST } from "@/lib/format";
-import type { TaskRow } from "@/lib/queries/tasks";
+import type { TaskRowRolled } from "@/lib/queries/tasks";
 import { TASK_STATUS_LABELS, type TaskStatus } from "@/lib/schemas/activity";
 import { formatSpan, type TaskParams } from "@/lib/schemas/task";
 import { addDays, barColumns, groupByPerson, timelineDays, timelineStart, TIMELINE_DAYS } from "@/lib/task-layout";
@@ -14,7 +14,7 @@ const at = (ymd: string) => new Date(`${ymd}T00:00:00Z`);
 
 const GRID = { gridTemplateColumns: `repeat(${TIMELINE_DAYS}, minmax(2.5rem, 1fr))` } as const;
 
-export function TaskTimeline({ tasks, params, link }: { tasks: TaskRow[]; params: TaskParams; link: (p: Partial<TaskParams>) => string }) {
+export function TaskTimeline({ tasks, params, link }: { tasks: TaskRowRolled[]; params: TaskParams; link: (p: Partial<TaskParams>) => string }) {
   const today = todayIST();
   const start = timelineStart(params.at, today);
   const days = timelineDays(start);

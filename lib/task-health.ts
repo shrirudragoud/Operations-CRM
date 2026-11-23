@@ -19,7 +19,35 @@ export type HealthTask = {
   updated_at?: string | null;
   /** Open subtasks, when known. */
   subOpen?: number;
+  /** Open subtasks already past their deadline: the parent is at risk however far off its own date is. */
+  subOverdue?: number;
+  subBlocked?: number;
 };
+
+export type SubRollup = { subOpen: number; subOverdue: number; subBlocked: number };
+
+/** Counts the roll-up needs from a parent's subtasks (one level). Finished and cancelled ones never count. */
+export function subtaskRollup(subs: { status: string; due_date: string | null; due_time?: string | null }[], now: Date = new Date()): SubRollup {
+  const today = todayIST(now);
+  const time = clock(now);
+  const out: SubRollup = { subOpen: 0, subOverdue: 0, subBlocked: 0 };
+  for (const s of subs) {
+    if (s.status !== "todo" && s.status !== "doing" && s.status !== "blocked") continue;
+    out.subOpen += 1;
+    if (s.status === "blocked") out.subBlocked += 1;
+    if (s.due_date && (s.due_date < today || (s.due_date === today && !!s.due_time && s.due_time.slice(0, 5) < time))) out.subOverdue += 1;
+  }
+  return out;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function subtaskReasons(t: HealthTask): string[] {
+  const reasons: string[] = [];
+  if (t.subOverdue) reasons.push(`${plural(t.subOverdue, "subtask", "subtasks")} overdue`);
+  if (t.subBlocked) reasons.push(`${plural(t.subBlocked, "subtask", "subtasks")} blocked`);
+  return reasons;
+}
 
 export type Health = {
   key: HealthKey;
@@ -108,7 +136,11 @@ export function taskHealth(t: HealthTask, now: Date = new Date()): Health {
     key, tone, label, detail: label, daysLeft: null, level: 0, rank: 0, reasons: [],
   });
   if (t.status === "done" || t.status === "cancelled") return none("finished", t.status === "done" ? "Done" : "Cancelled", t.status === "done" ? "green" : "slate");
-  if (!t.due_date) return none("no_date", "No deadline");
+  const rollup = subtaskReasons(t);
+  if (!t.due_date) {
+    if (!rollup.length) return none("no_date", "No deadline");
+    return { key: "at_risk", tone: "orange", label: "At risk", detail: `${rollup.join(". ")}.`, daysLeft: null, level: 2, rank: 240, reasons: rollup };
+  }
 
   const today = todayIST(now);
   const daysLeft = daysBetween(today, t.due_date);
@@ -117,21 +149,21 @@ export function taskHealth(t: HealthTask, now: Date = new Date()): Health {
   if (daysLeft < 0 || timePassed) {
     const late = Math.abs(daysLeft);
     const label = late === 0 ? "Overdue today" : `Overdue ${late} d`;
-    const reasons = t.status === "blocked" ? ["Blocked"] : [];
+    const reasons = [...(t.status === "blocked" ? ["Blocked"] : []), ...rollup];
     return {
       key: "overdue", tone: "red", label, daysLeft, level: 3, rank: 300 + Math.min(late, 99), reasons,
       detail: `${late === 0 ? "The time has passed today" : `${late} ${late === 1 ? "day" : "days"} late`}${reasons.length ? `. ${reasons.join(". ")}` : ""}.`,
     };
   }
 
-  if (daysLeft > LEAD_DAYS) {
+  if (daysLeft > LEAD_DAYS && rollup.length === 0) {
     if (t.status === "doing") {
       return { key: "on_track", tone: "green", label: "On track", detail: `In progress, due in ${daysLeft} days.`, daysLeft, level: 0, rank: 10, reasons: [] };
     }
     return { key: "later", tone: "slate", label: daysLeft <= 14 ? `Due in ${daysLeft} days` : "Later", detail: `Due in ${daysLeft} days.`, daysLeft, level: 0, rank: 5, reasons: [] };
   }
 
-  const reasons = riskReasons(t, today, daysLeft);
+  const reasons = [...(daysLeft > LEAD_DAYS ? [] : riskReasons(t, today, daysLeft)), ...rollup];
   const dueText = daysLeft === 0 ? "Due today" : daysLeft === 1 ? "Due tomorrow" : `Due in ${daysLeft} days`;
   if (reasons.length) {
     const tone: Tone = daysLeft >= 3 ? "amber" : "orange";

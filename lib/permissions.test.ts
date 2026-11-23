@@ -49,7 +49,7 @@ describe("canAccess", () => {
     expect(canAccess(sales, "sales")).toBe(true);
     expect(canAccess(sales, "outreach")).toBe(false);
     expect(canAccess(sales, "inventory")).toBe(false);
-    expect(allowed(sales)).toEqual(["calendar", "feedback", "institutions", "me", "my_work", "sales", "tasks", "timesheet"]);
+    expect(allowed(sales)).toEqual(["assistant", "calendar", "feedback", "institutions", "me", "my_work", "sales", "tasks", "timesheet"]);
   });
 
   it("puts inventory under the workshop department", () => {

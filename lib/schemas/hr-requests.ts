@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkUpload } from "@/lib/schemas/documents";
 
 export const REQUEST_KINDS = ["experience_letter", "address_proof", "salary_certificate", "detail_change", "other"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
@@ -26,11 +27,31 @@ export const requestSchema = z.object({
 });
 export type RequestInput = z.input<typeof requestSchema>;
 
+/** The body may be empty when files are attached; requireMessage() decides. */
 export const messageSchema = z.object({
   request_id: z.uuid(),
-  body: z.string().trim().min(1, "Write a message first.").max(2000, "Keep the message under 2000 characters."),
+  body: z.string().trim().max(2000, "Keep the message under 2000 characters.").default(""),
   internal: z.boolean().default(false),
+  keep_copy: z.boolean().default(false),
+  finish: z.boolean().default(false),
 });
+
+export const MAX_FILES_PER_MESSAGE = 5;
+
+/** A message needs words or at least one file. */
+export function requireMessage(body: string, fileCount: number): string | null {
+  return body.trim() === "" && fileCount === 0 ? "Write a message or attach a file." : null;
+}
+
+/** Checks a chosen list of files before upload: how many, how big, which type. The server checks the real content. */
+export function checkAttachments(files: { name: string; size: number; type: string }[]): string | null {
+  if (files.length > MAX_FILES_PER_MESSAGE) return `Attach at most ${MAX_FILES_PER_MESSAGE} files at a time.`;
+  for (const f of files) {
+    const c = checkUpload(f);
+    if (!c.ok) return `${f.name}: ${c.error}`;
+  }
+  return null;
+}
 
 export const stateSchema = z.object({
   request_id: z.uuid(),

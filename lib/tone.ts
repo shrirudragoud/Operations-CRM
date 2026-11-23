@@ -148,6 +148,7 @@ export const AREA_TONE: Record<string, Tone> = {
   community: "green",
   cockpit: "red",
   me: "teal",
+  assistant: "violet",
   hr: "violet",
   team: "slate",
   audit_log: "slate",

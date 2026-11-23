@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import { LoadError } from "@/components/load-error";
 import { ChecklistTick } from "@/components/requests/checklist-tick";
 import { RequestForm } from "@/components/requests/request-form";
-import { RequestThread, StateBadge, type ThreadMessage } from "@/components/requests/request-thread";
+import { AttachmentList } from "@/components/requests/attachments";
+import { RequestThread, StateBadge } from "@/components/requests/request-thread";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireMe } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { canHaveProfile } from "@/lib/portal";
-import { listAssignedToMe, listMessages, listMyChecklist, listMyRequests } from "@/lib/queries/hr-requests";
+import { buildThreads } from "@/lib/request-threads";
+import { listAssignedToMe, listMessages, listMyChecklist, listMyRequests, listRequestFiles } from "@/lib/queries/hr-requests";
 import {
   ONBOARDING_LABELS, OWNER_LABELS, REQUEST_LABELS, type OnboardingKind, type OnboardingOwner, type RequestKind, type RequestState,
 } from "@/lib/schemas/hr-requests";
@@ -24,13 +26,9 @@ export default async function MyRequestsPage() {
   const [requests, checklist, assigned] = await Promise.all([
     listMyRequests(supabase, me.id), listMyChecklist(supabase, me.id), listAssignedToMe(supabase, me.id),
   ]);
-  const messages = await listMessages(supabase, (requests.data ?? []).map((r) => r.id));
-  const byRequest = new Map<string, ThreadMessage[]>();
-  for (const m of messages.data ?? []) {
-    const list = byRequest.get(m.request_id) ?? [];
-    list.push({ id: m.id, body: m.body, internal: m.internal, created_at: m.created_at, author: m.author?.full_name ?? null });
-    byRequest.set(m.request_id, list);
-  }
+  const ids = (requests.data ?? []).map((r) => r.id);
+  const [messages, files] = await Promise.all([listMessages(supabase, ids), listRequestFiles(supabase, ids)]);
+  const { threads, onRequest } = buildThreads(messages.data ?? [], files.data ?? []);
 
   const lists = (["joiner", "leaver"] as const).map((kind) => ({ kind, items: (checklist.data ?? []).filter((t) => t.kind === kind) })).filter((l) => l.items.length > 0);
 
@@ -109,7 +107,8 @@ export default async function MyRequestsPage() {
                 </div>
                 {r.details && <p className="text-sm whitespace-pre-wrap">{r.details}</p>}
                 {r.resolution && <p className="text-sm"><span className="font-medium">HR&apos;s answer:</span> {r.resolution}</p>}
-                <RequestThread requestId={r.id} subject={r.subject} state={r.state as RequestState} messages={byRequest.get(r.id) ?? []} hr={false} />
+                <AttachmentList files={onRequest.get(r.id) ?? []} label={`Files you sent with ${r.subject}`} />
+                <RequestThread requestId={r.id} subject={r.subject} state={r.state as RequestState} messages={threads.get(r.id) ?? []} hr={false} />
               </section>
             ))
           )}

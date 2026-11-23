@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { FilePicker } from "@/components/requests/attachments";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -17,15 +18,22 @@ const EMPTY: RequestInput = { kind: "experience_letter", subject: "", details: "
 
 export function RequestForm() {
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const form = useForm<RequestInput>({ resolver: zodResolver(requestSchema), defaultValues: EMPTY });
   const { errors, isSubmitting } = form.formState;
 
   async function onSubmit(values: RequestInput) {
     setError(null);
-    const res = await createHrRequest(values);
+    const data = new FormData();
+    data.set("kind", values.kind);
+    data.set("subject", values.subject);
+    data.set("details", values.details);
+    for (const f of files) data.append("files", f);
+    const res = await createHrRequest(data);
     if (!res.ok) return setError(res.error);
-    toast.success("Request sent to HR");
+    toast.success(files.length > 0 ? "Request and files sent to HR" : "Request sent to HR");
     form.reset(EMPTY);
+    setFiles([]);
   }
 
   return (
@@ -56,8 +64,9 @@ export function RequestForm() {
           <Textarea id="rq-details" rows={3} aria-invalid={!!errors.details} {...form.register("details")} />
           <FieldError errors={[errors.details]} />
         </Field>
+        <FilePicker files={files} onChange={setFiles} disabled={isSubmitting} label="Attach files (optional)" />
         {error && <p className="text-destructive text-sm" role="alert">{error}</p>}
-        <Button type="submit" disabled={isSubmitting} className="w-fit">{isSubmitting && <Spinner />} Send to HR</Button>
+        <Button type="submit" disabled={isSubmitting} className="w-fit">{isSubmitting && <Spinner />} {isSubmitting && files.length > 0 ? "Uploading" : "Send to HR"}</Button>
       </FieldGroup>
     </form>
   );

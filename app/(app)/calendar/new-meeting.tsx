@@ -8,9 +8,9 @@ import { toast } from "sonner";
 import { CircleAlertIcon, PlusIcon } from "lucide-react";
 import { DateField, TimeField } from "@/components/date-field";
 import { InstitutionPicker } from "@/components/institution-picker";
+import { PeoplePicker } from "@/components/people-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -55,7 +55,6 @@ function MeetingForm({ me, people, today, day, onDone }: Omit<Props, "label"> & 
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyHit[]>([]);
-  const [filter, setFilter] = useState("");
   const form = useForm<ScheduleMeetingInput, unknown, ScheduleMeetingValues>({
     resolver: zodResolver(scheduleMeetingSchema),
     defaultValues: {
@@ -96,7 +95,6 @@ function MeetingForm({ me, people, today, day, onDone }: Omit<Props, "label"> & 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, repeat, me.id]);
 
-  const shown = people.filter((p) => p.id !== me.id && p.full_name.toLowerCase().includes(filter.trim().toLowerCase()));
   const setAttendees = (ids: string[]) => form.setValue("attendees", ids, { shouldDirty: true, shouldValidate: true });
 
   async function onSubmit() {
@@ -235,7 +233,7 @@ function MeetingForm({ me, people, today, day, onDone }: Omit<Props, "label"> & 
         ) : (
           <Field data-invalid={!!errors.attendees}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <FieldLabel htmlFor="mt-filter">Invite people ({attendees.length} chosen)</FieldLabel>
+              <FieldLabel htmlFor="mt-attendees">Invite people ({attendees.length} chosen)</FieldLabel>
               {department && (
                 <Button
                   type="button"
@@ -247,19 +245,13 @@ function MeetingForm({ me, people, today, day, onDone }: Omit<Props, "label"> & 
                 </Button>
               )}
             </div>
-            <Input id="mt-filter" placeholder="Search by name" value={filter} onChange={(e) => setFilter(e.target.value)} autoComplete="off" />
-            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2" aria-label="People">
-              {shown.map((p) => {
-                const id = `mt-p-${p.id}`;
-                return (
-                  <li key={p.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox id={id} checked={attendees.includes(p.id)} onCheckedChange={(on) => setAttendees(on ? [...attendees, p.id] : attendees.filter((x) => x !== p.id))} />
-                    <label htmlFor={id}>{p.full_name}</label>
-                  </li>
-                );
-              })}
-              {shown.length === 0 && <li className="text-muted-foreground text-sm">Nobody matches.</li>}
-            </ul>
+            <PeoplePicker
+              id="mt-attendees"
+              people={people.filter((p) => p.id !== me.id)}
+              value={attendees}
+              onChange={setAttendees}
+              placeholder="Choose people to invite"
+            />
             <FieldError errors={[errors.attendees as { message?: string } | undefined]} />
           </Field>
         )}

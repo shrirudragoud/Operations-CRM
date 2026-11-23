@@ -275,6 +275,11 @@ await import('./test-leave.mjs').then((m) => m.default({ db, run, ok, bad, msg, 
 await import('./test-documents.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-hr-requests.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-profile.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
+await import('./test-hr-home.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
+await import('./test-task-shared.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
+await import('./test-task-files.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
+
+await import('./test-ai-assistant.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

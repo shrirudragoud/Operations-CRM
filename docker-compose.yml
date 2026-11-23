@@ -28,6 +28,35 @@ services:
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
       # Set OPS_TIMING=1 to log one line per Supabase call and per page (scripts/timing-report.mjs summarises them).
       OPS_TIMING: ${OPS_TIMING:-}
+      # Set TASK_FILE_SCAN=required (with the clamav service running) to refuse any upload the virus scanner cannot clear.
+      TASK_FILE_SCAN: ${TASK_FILE_SCAN:-}
+      CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      # The assistant: AI_KEY_SECRET (32 random bytes, base64: openssl rand -base64 32) encrypts each person's own Gemini key.
+      # Without it the assistant stays off. Losing it means everyone has to add their key again. GEMINI_API_BASE is for tests only.
+      AI_KEY_SECRET: ${AI_KEY_SECRET:-}
+      GEMINI_API_BASE: ${GEMINI_API_BASE:-}
+
+  # Virus scanner for task files. Internal only (no published port). Start it with `docker compose --profile scan up -d clamav`;
+  # it downloads signatures on first start (a few minutes) and is healthy once clamd answers.
+  clamav:
+    profiles: ["scan"]
+    image: clamav/clamav:stable
+    container_name: hardcode-ops-clamav
+    restart: unless-stopped
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "false"
+      # Task files may be up to 25 MB; clamd's own stream limit must be higher than that.
+      CLAMD_CONF_StreamMaxLength: 30M
+      CLAMD_CONF_MaxFileSize: 30M
+    volumes:
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
 
   tunnel:
     profiles: ["tunnel"]
@@ -42,3 +71,6 @@ services:
       ${CLOUDFLARE_TUNNEL_TOKEN:---url http://app:3000}
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+
+volumes:
+  clamav-db:

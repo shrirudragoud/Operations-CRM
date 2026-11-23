@@ -103,6 +103,9 @@ const priority = z
     return n;
   });
 
+export const TASK_MODES = ["separate", "shared"] as const;
+export type TaskMode = (typeof TASK_MODES)[number];
+
 const taskFields = {
   title,
   description: optionalText(4000, "the description"),
@@ -132,11 +135,12 @@ export const createTaskSchema = z
     entity_type: z.enum(["institution", "deal", "event"]).nullable().optional().transform((v) => v ?? null),
     entity_id: optionalUuid,
     also_assignee_ids: z.array(z.uuid()).max(MAX_TASK_GROUP, `At most ${MAX_TASK_GROUP} people.`).optional().transform((v) => v ?? []),
+    mode: z.enum(TASK_MODES).optional().transform((v) => v ?? "separate"),
   })
   .superRefine((v, ctx) => {
     dueRules(v, ctx);
-    if (v.also_assignee_ids.length > 0 && (v.parent_task_id || v.entity_type)) {
-      ctx.addIssue({ code: "custom", path: ["also_assignee_ids"], message: "A subtask or a linked task goes to one person." });
+    if (v.also_assignee_ids.length > 0 && v.entity_type) {
+      ctx.addIssue({ code: "custom", path: ["also_assignee_ids"], message: "A linked task goes to one person." });
     }
     if (!!v.entity_type !== !!v.entity_id) {
       ctx.addIssue({ code: "custom", path: ["entity_id"], message: "Link both the record type and the record." });
@@ -178,6 +182,8 @@ export const updateTaskGroupSchema = z.object({
 });
 
 export const cancelTaskGroupSchema = z.object({ id: z.uuid(), reason: z.string().trim().min(1, "Say why.").max(500) });
+
+export const taskOwnerSchema = z.object({ task_id: z.uuid(), staff_id: z.uuid() });
 
 export const taskIdSchema = z.object({ id: z.uuid() });
 
@@ -353,6 +359,8 @@ export type TaskParams = {
   assignee: string;
   q: string;
   page: number;
+  /** Show subtasks as cards and rows of their own. Off, they sit under their parent (your own subtasks always show under "Assigned to me"). */
+  subtasks: boolean;
 };
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -374,6 +382,7 @@ export function parseTaskParams(raw: Record<string, string | string[] | undefine
     assignee: assignee === "none" || z.uuid().safeParse(assignee).success ? assignee : "",
     q: cleanSearch(first(raw.q)),
     page: Number.isFinite(page) && page > 0 ? Math.min(page, 10_000) : 1,
+    subtasks: first(raw.subtasks) === "1",
   };
 }
 
@@ -387,6 +396,7 @@ export function taskQuery(p: Partial<TaskParams>): string {
   if (p.assignee) qs.set("assignee", p.assignee);
   if (p.q) qs.set("q", p.q);
   if (p.page && p.page > 1) qs.set("page", String(p.page));
+  if (p.subtasks) qs.set("subtasks", "1");
   return qs.toString();
 }
 
@@ -411,6 +421,9 @@ export function describeHistory(h: { kind: string; from_value: string | null; to
     }
     case "department": return `moved it from ${h.from_value ?? "-"} to ${h.to_value ?? "-"}`;
     case "edited": return "edited the details";
+    case "file_added": return `added the file ${h.to_value ?? ""}`.trim();
+    case "file_removed": return `removed the file ${h.from_value ?? ""}`.trim();
+    case "file_restored": return `restored the file ${h.to_value ?? ""}`.trim();
     default: return h.kind;
   }
 }

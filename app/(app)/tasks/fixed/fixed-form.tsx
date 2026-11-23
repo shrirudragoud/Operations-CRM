@@ -6,9 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
 import { DateField, TimeField } from "@/components/date-field";
+import { PeoplePicker } from "@/components/people-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -233,21 +233,13 @@ function FixedForm({ departments, staff, initial, today, onDone }: Omit<Props, "
             {allDepartment ? "Every active member of the department gets their own copy." : "Only the people you pick below get a copy."}
           </FieldDescription>
           {!allDepartment && (
-            <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2" aria-label="People">
-              {staff.map((s) => {
-                const id = `fx-staff-${s.id}`;
-                return (
-                  <li key={s.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      id={id}
-                      checked={chosen.includes(s.id)}
-                      onCheckedChange={(on) => form.setValue("staff_ids", on ? [...chosen, s.id] : chosen.filter((x) => x !== s.id), { shouldDirty: true, shouldValidate: true })}
-                    />
-                    <label htmlFor={id}>{s.full_name}</label>
-                  </li>
-                );
-              })}
-            </ul>
+            <PeoplePicker
+              id="fx-staff"
+              people={staff}
+              value={chosen}
+              onChange={(ids) => form.setValue("staff_ids", ids, { shouldDirty: true, shouldValidate: true })}
+              placeholder="Choose people"
+            />
           )}
           <FieldError errors={[errors.staff_ids as { message?: string } | undefined]} />
         </Field>

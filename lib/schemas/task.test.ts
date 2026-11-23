@@ -26,7 +26,8 @@ describe("createTaskSchema", () => {
     const ids = Array.from({ length: 20 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
     expect(createTaskSchema.safeParse({ title: "x", also_assignee_ids: ids }).success).toBe(true);
     expect(createTaskSchema.safeParse({ title: "x", also_assignee_ids: [...ids, "00000000-0000-4000-8000-0000000000ff"] }).success).toBe(false);
-    expect(createTaskSchema.safeParse({ title: "x", also_assignee_ids: ids.slice(0, 2), parent_task_id: ids[5] }).success).toBe(false);
+    expect(createTaskSchema.safeParse({ title: "x", also_assignee_ids: ids.slice(0, 2), parent_task_id: ids[5] }).success).toBe(true);
+    expect(createTaskSchema.safeParse({ title: "x", also_assignee_ids: ids.slice(0, 2), entity_type: "deal", entity_id: ids[5] }).success).toBe(false);
   });
   it("turns empty form strings into nulls", () => {
     const r = createTaskSchema.parse({ title: "x", department: "sales", assignee_id: "", due_date: "", due_time: "", description: "", estimate_minutes: "", parent_task_id: "" });
@@ -126,13 +127,15 @@ describe("formatters", () => {
 describe("parseTaskParams / taskQuery", () => {
   it("falls back to safe defaults", () => {
     expect(parseTaskParams({ tab: "evil", view: "x", department: "legal", assignee: "nope", page: "-3" })).toEqual({
-      tab: "mine", view: "open", department: "", assignee: "", q: "", layout: "board", at: "", page: 1,
+      tab: "mine", view: "open", department: "", assignee: "", q: "", layout: "board", at: "", subtasks: false, page: 1,
     });
   });
   it("round-trips valid params and omits defaults", () => {
     const p = parseTaskParams({ tab: "team", view: "done", department: "sales", assignee: "none", q: "brochure", page: "2" });
-    expect(p).toEqual({ tab: "team", view: "done", department: "sales", assignee: "none", q: "brochure", layout: "board", at: "", page: 2 });
+    expect(p).toEqual({ tab: "team", view: "done", department: "sales", assignee: "none", q: "brochure", layout: "board", at: "", subtasks: false, page: 2 });
     expect(taskQuery(p)).toBe("tab=team&view=done&department=sales&assignee=none&q=brochure&page=2");
+    expect(taskQuery({ ...p, subtasks: true, page: 1 })).toContain("subtasks=1");
+    expect(parseTaskParams({ subtasks: "1" }).subtasks).toBe(true);
     expect(taskQuery({ tab: "mine", view: "open", page: 1 })).toBe("");
   });
 });
@@ -146,6 +149,9 @@ describe("describeHistory", () => {
     expect(describeHistory({ kind: "status", from_value: "doing", to_value: "blocked", note: "Waiting" })).toBe("changed the status from In progress to Blocked: Waiting");
     expect(describeHistory({ kind: "priority", from_value: "3", to_value: "1", note: null })).toBe("changed the priority from Normal to Urgent");
     expect(describeHistory({ kind: "due", from_value: null, to_value: "2026-03-10 09:00", note: null })).toBe("changed the deadline from none to 2026-03-10 09:00");
+    expect(describeHistory({ kind: "file_added", from_value: null, to_value: "plan.pdf", note: null })).toBe("added the file plan.pdf");
+    expect(describeHistory({ kind: "file_removed", from_value: "plan.pdf", to_value: null, note: null })).toBe("removed the file plan.pdf");
+    expect(describeHistory({ kind: "file_restored", from_value: null, to_value: "plan.pdf", note: null })).toBe("restored the file plan.pdf");
   });
 });
 

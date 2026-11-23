@@ -101,6 +101,7 @@ test("manual time: logged, refused for a future day, and capped at 24 hours a da
   await expect(member.getByRole("alert").filter({ hasText: "allowed days" })).toBeVisible();
   await member.keyboard.press("Escape");
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
   expect(one(`select count(*) from ops.time_entry where task_id = '${taskId(T1)}' and work_date > '${today}'`)).toBe("0");
 
   // Fill the day up to the cap: 90 minutes are already there, so 16h more passes and another 9h does not.
@@ -116,6 +117,7 @@ test("manual time: logged, refused for a future day, and capped at 24 hours a da
     before + 90 + 960,
   );
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
 
   // The person who logged it can delete it.
   const del = member.getByRole("button", { name: /^Delete the / }).first();

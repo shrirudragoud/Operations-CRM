@@ -10,6 +10,7 @@ import { formatDate, todayIST } from "@/lib/format";
 import { canTrackTime } from "@/lib/permissions";
 import { listOwners } from "@/lib/queries/institution";
 import { getRunningTimer, listEntriesBetween } from "@/lib/queries/time";
+import { mineOr, ownedTaskIds } from "@/lib/queries/tasks";
 import { parseWeek, TIME_EDIT_DAYS, weekDays } from "@/lib/schemas/time";
 import { addDays } from "@/lib/task-layout";
 import { createClient } from "@/utils/supabase/server";
@@ -41,6 +42,7 @@ export default async function TimesheetPage({ searchParams }: { searchParams: Pr
   const readOnly = !own || !canTrackTime(me);
   const editFrom = addDays(today, -TIME_EDIT_DAYS);
 
+  const owned = readOnly ? [] : await ownedTaskIds(supabase, me.id);
   const [entries, running, pickable] = await Promise.all([
     listEntriesBetween(supabase, viewId, start, end),
     own && canTrackTime(me) ? getRunningTimer(supabase, me.id) : Promise.resolve({ data: null }),
@@ -49,7 +51,7 @@ export default async function TimesheetPage({ searchParams }: { searchParams: Pr
       : supabase
           .from("task")
           .select("id, title")
-          .eq("assignee_id", me.id)
+          .or(mineOr(me.id, owned))
           .or(`status.in.(todo,doing,blocked),updated_at.gte.${new Date(`${addDays(today, -14)}T00:00:00+05:30`).toISOString()}`)
           .order("updated_at", { ascending: false })
           .limit(TASK_PICKER_LIMIT),

@@ -169,6 +169,7 @@ test("proposal lines save, total up and can set the deal value", async ({ browse
   await expect(page.getByLabel("Line 2 description")).toHaveValue("ZZ trainer day");
   await page.getByRole("button", { name: "Use lines total as deal value" }).click();
   await expect.poll(() => one("select value_inr from ops.deal where title = 'ZZ Lines Deal'")).toBe("25000.00");
+  await expect(page.getByText(/Deal value set to/)).toBeVisible();
 
   await page.getByLabel("Line 2 description").fill("");
   await page.getByRole("button", { name: "Save lines" }).click();

@@ -66,6 +66,178 @@ export type Database = {
           },
         ]
       }
+      ai_action: {
+        Row: {
+          id: string
+          conversation_id: string
+          staff_id: string
+          kind: string
+          payload: Json
+          summary: string
+          status: string
+          result: Json | null
+          error: string | null
+          created_at: string
+          decided_at: string | null
+          expires_at: string
+        }
+        Insert: {
+          id?: string
+          conversation_id: string
+          staff_id?: string
+          kind: string
+          payload: Json
+          summary: string
+          status?: string
+          result?: Json | null
+          error?: string | null
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string
+        }
+        Update: {
+          id?: string
+          conversation_id?: string
+          staff_id?: string
+          kind?: string
+          payload?: Json
+          summary?: string
+          status?: string
+          result?: Json | null
+          error?: string | null
+          created_at?: string
+          decided_at?: string | null
+          expires_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_action_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "ai_conversation"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_action_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_conversation: {
+        Row: {
+          id: string
+          staff_id: string
+          title: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id?: string
+          title?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          title?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_conversation_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_key: {
+        Row: {
+          staff_id: string
+          cipher: string
+          key_hint: string
+          model: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          staff_id: string
+          cipher: string
+          key_hint: string
+          model: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          staff_id?: string
+          cipher?: string
+          key_hint?: string
+          model?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_key_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_message: {
+        Row: {
+          id: string
+          seq: number
+          conversation_id: string
+          staff_id: string
+          role: string
+          content: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          seq?: number
+          conversation_id: string
+          staff_id?: string
+          role: string
+          content: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          seq?: number
+          conversation_id?: string
+          staff_id?: string
+          role?: string
+          content?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_message_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "ai_conversation"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_message_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_day_mark: {
         Row: {
           id: string
@@ -1167,6 +1339,74 @@ export type Database = {
           },
         ]
       }
+      hr_request_file: {
+        Row: {
+          id: string
+          request_id: string
+          message_id: number | null
+          staff_id: string
+          uploaded_by: string | null
+          name: string
+          path: string
+          mime: string
+          size_bytes: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          request_id: string
+          message_id?: number | null
+          staff_id: string
+          uploaded_by?: string | null
+          name: string
+          path: string
+          mime: string
+          size_bytes: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          request_id?: string
+          message_id?: number | null
+          staff_id?: string
+          uploaded_by?: string | null
+          name?: string
+          path?: string
+          mime?: string
+          size_bytes?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_request_file_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "hr_request_message"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_request_file_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "hr_request"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_request_file_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_request_file_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_request_message: {
         Row: {
           id: number
@@ -2169,6 +2409,7 @@ export type Database = {
           created_at: string
           read_at: string | null
           meeting_id: string | null
+          request_id: string | null
         }
         Insert: {
           id?: number
@@ -2181,6 +2422,7 @@ export type Database = {
           created_at?: string
           read_at?: string | null
           meeting_id?: string | null
+          request_id?: string | null
         }
         Update: {
           id?: number
@@ -2193,6 +2435,7 @@ export type Database = {
           created_at?: string
           read_at?: string | null
           meeting_id?: string | null
+          request_id?: string | null
         }
         Relationships: [
           {
@@ -2214,6 +2457,13 @@ export type Database = {
             columns: ["recipient_id"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "hr_request"
             referencedColumns: ["id"]
           },
           {
@@ -3078,6 +3328,9 @@ export type Database = {
           period_start: string | null
           category: string | null
           group_id: string | null
+          shared: boolean
+          attachment_count: number
+          comment_count: number
         }
         Insert: {
           id?: string
@@ -3109,6 +3362,9 @@ export type Database = {
           period_start?: string | null
           category?: string | null
           group_id?: string | null
+          shared?: boolean
+          attachment_count?: number
+          comment_count?: number
         }
         Update: {
           id?: string
@@ -3140,6 +3396,9 @@ export type Database = {
           period_start?: string | null
           category?: string | null
           group_id?: string | null
+          shared?: boolean
+          attachment_count?: number
+          comment_count?: number
         }
         Relationships: [
           {
@@ -3186,6 +3445,83 @@ export type Database = {
           },
         ]
       }
+      task_attachment: {
+        Row: {
+          id: string
+          task_id: string
+          comment_id: string | null
+          path: string
+          name: string
+          mime: string
+          size_bytes: number
+          kind: string
+          is_inline: boolean
+          uploaded_by: string | null
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          comment_id?: string | null
+          path: string
+          name: string
+          mime: string
+          size_bytes: number
+          kind: string
+          is_inline?: boolean
+          uploaded_by?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          comment_id?: string | null
+          path?: string
+          name?: string
+          mime?: string
+          size_bytes?: number
+          kind?: string
+          is_inline?: boolean
+          uploaded_by?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_attachment_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "task_comment"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_attachment_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_attachment_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "task"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_attachment_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       task_comment: {
         Row: {
           id: string
@@ -3228,6 +3564,21 @@ export type Database = {
           },
         ]
       }
+      task_file_orphan: {
+        Row: {
+          path: string
+          queued_at: string
+        }
+        Insert: {
+          path: string
+          queued_at?: string
+        }
+        Update: {
+          path?: string
+          queued_at?: string
+        }
+        Relationships: []
+      }
       task_history: {
         Row: {
           id: number
@@ -3269,6 +3620,49 @@ export type Database = {
           },
           {
             foreignKeyName: "task_history_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "task"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_owner: {
+        Row: {
+          task_id: string
+          staff_id: string
+          added_by: string | null
+          added_at: string
+        }
+        Insert: {
+          task_id: string
+          staff_id: string
+          added_by?: string | null
+          added_at?: string
+        }
+        Update: {
+          task_id?: string
+          staff_id?: string
+          added_by?: string | null
+          added_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_owner_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_owner_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_owner_task_id_fkey"
             columns: ["task_id"]
             isOneToOne: false
             referencedRelation: "task"
@@ -3681,6 +4075,9 @@ export type Database = {
           p_request: string
           p_body: string
           p_internal?: boolean
+          p_files?: Json
+          p_keep_copy?: boolean
+          p_finish?: boolean
         }
         Returns: undefined
       }
@@ -3695,6 +4092,13 @@ export type Database = {
           p_expires?: string
         }
         Returns: string
+      }
+      add_task_owner: {
+        Args: {
+          p_task: string
+          p_staff: string
+        }
+        Returns: undefined
       }
       answer_meeting_request: {
         Args: {
@@ -3771,6 +4175,12 @@ export type Database = {
       can_decide_attendance: {
         Args: {
           p_staff: string
+        }
+        Returns: boolean
+      }
+      can_edit_task: {
+        Args: {
+          p_task: string
         }
         Returns: boolean
       }
@@ -3865,6 +4275,23 @@ export type Database = {
           p_kind: string
           p_subject: string
           p_details?: string
+          p_files?: Json
+        }
+        Returns: string
+      }
+      create_shared_task: {
+        Args: {
+          title: string
+          assignees: string[]
+          description?: string
+          priority?: number
+          due_date?: string
+          due_time?: string
+          start_date?: string
+          estimate_minutes?: number
+          department?: Database["ops"]["Enums"]["department"]
+          category?: string
+          parent_task?: string
         }
         Returns: string
       }
@@ -3912,6 +4339,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      delete_ai_key: {
+        Args: never
+        Returns: undefined
+      }
       delete_staff_document: {
         Args: {
           p_id: string
@@ -3949,6 +4380,16 @@ export type Database = {
         }
         Returns: Json
       }
+      holds_subtask_of: {
+        Args: {
+          p_parent: string
+        }
+        Returns: boolean
+      }
+      hr_actions: {
+        Args: never
+        Returns: { kind: string; ref_id: string; staff_id: string; full_name: string; title: string; detail: string; since: string; due_on: string; urgent: boolean }[]
+      }
       hr_adjust_balance: {
         Args: {
           p_staff: string
@@ -3959,6 +4400,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      hr_counts: {
+        Args: never
+        Returns: { leave_pending: number; requests_waiting: number; docs_to_verify: number; docs_expiring: number; onboarding_due: number; headcount: number; on_leave_today: number }[]
+      }
       hr_doc_object_ok: {
         Args: {
           p_name: string
@@ -3966,11 +4411,27 @@ export type Database = {
         }
         Returns: boolean
       }
+      hr_overview: {
+        Args: never
+        Returns: { list: string; staff_id: string; full_name: string; on_date: string; detail: string }[]
+      }
       hr_profile: {
         Args: {
           p_staff: string
         }
         Returns: Database["ops"]["Tables"]["staff_profile"]["Row"][]
+      }
+      hr_send_document: {
+        Args: {
+          p_staff: string
+          p_kind: string
+          p_title: string
+          p_path: string
+          p_mime: string
+          p_size: number
+          p_note?: string
+        }
+        Returns: string
       }
       ide_funnel: {
         Args: never
@@ -4022,6 +4483,12 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_task_owner: {
+        Args: {
+          p_task: string
+        }
+        Returns: boolean
+      }
       is_watching: {
         Args: {
           p_task: string
@@ -4060,6 +4527,12 @@ export type Database = {
         }
         Returns: boolean
       }
+      leads_task_owners: {
+        Args: {
+          p_task: string
+        }
+        Returns: boolean
+      }
       leave_balances: {
         Args: {
           p_staff: string
@@ -4075,6 +4548,10 @@ export type Database = {
           p_part?: string
         }
         Returns: number
+      }
+      load_ai_key: {
+        Args: never
+        Returns: { cipher: string; model: string }[]
       }
       log_hr_access: {
         Args: {
@@ -4111,6 +4588,12 @@ export type Database = {
         }
         Returns: { staff_id: string; full_name: string; kind: string; total: number; done: number; next_due: string; completed_at: string }[]
       }
+      open_request_file: {
+        Args: {
+          p_file: string
+        }
+        Returns: string
+      }
       open_staff_document: {
         Args: {
           p_id: string
@@ -4132,6 +4615,31 @@ export type Database = {
           p_size: number
         }
         Returns: string
+      }
+      register_task_attachment: {
+        Args: {
+          p_task: string
+          p_path: string
+          p_name: string
+          p_mime: string
+          p_size: number
+          p_comment?: string
+          p_inline?: boolean
+        }
+        Returns: string
+      }
+      remove_task_attachment: {
+        Args: {
+          p_id: string
+        }
+        Returns: undefined
+      }
+      remove_task_owner: {
+        Args: {
+          p_task: string
+          p_staff: string
+        }
+        Returns: undefined
       }
       replace_deal_lines: {
         Args: {
@@ -4157,6 +4665,12 @@ export type Database = {
         }
         Returns: undefined
       }
+      restore_task_attachment: {
+        Args: {
+          p_id: string
+        }
+        Returns: undefined
+      }
       retire_company_document: {
         Args: {
           p_id: string
@@ -4173,11 +4687,31 @@ export type Database = {
         Args: never
         Returns: Json
       }
+      save_ai_key: {
+        Args: {
+          p_cipher: string
+          p_hint: string
+          p_model: string
+        }
+        Returns: undefined
+      }
       sees_attendance: {
         Args: {
           p_staff: string
         }
         Returns: boolean
+      }
+      sees_task_fully: {
+        Args: {
+          p_task: string
+        }
+        Returns: boolean
+      }
+      set_ai_model: {
+        Args: {
+          p_model: string
+        }
+        Returns: undefined
       }
       set_event_team: {
         Args: {
@@ -4217,6 +4751,19 @@ export type Database = {
           p_due_time: string
         }
         Returns: string
+      }
+      task_file_object_ok: {
+        Args: {
+          p_name: string
+          p_mode: string
+        }
+        Returns: boolean
+      }
+      task_group_progress: {
+        Args: {
+          p_group: string
+        }
+        Returns: { total: number; done: number; open: number; overdue: number; people: number }[]
       }
       task_manager: {
         Args: {

@@ -24,7 +24,7 @@ import { MEETING_KIND_TONE } from "@/lib/tone";
 import { getRunningTimer, listEntriesBetween } from "@/lib/queries/time";
 import { formatMinutes, formatSpan } from "@/lib/schemas/task";
 import { onTimeRate, summarizeHealth, taskHealth } from "@/lib/task-health";
-import { listRecentlyDone, ON_TIME_DAYS } from "@/lib/queries/tasks";
+import { listRecentlyDone, mineOr, ON_TIME_DAYS, ownedTaskIds } from "@/lib/queries/tasks";
 import { elapsedMinutes, formatHM, weekStart } from "@/lib/schemas/time";
 import { addDays } from "@/lib/task-layout";
 import { PRIORITY_TONE, TONE_PANEL, TONE_STRIPE, TONE_TEXT, type Tone } from "@/lib/tone";
@@ -61,12 +61,13 @@ export default async function MyDayPage() {
   const tracking = canTrackTime(me);
 
   const showMeetings = canAccess(me, "calendar");
+  const owned = await ownedTaskIds(supabase, me.id);
   const [meetingsToday, tasksRes, timerRes, entriesRes, doneRes] = await Promise.all([
     showMeetings ? listScheduleBetween(supabase, me, dayStartIso(today), dayStartIso(addDays(today, 1))) : Promise.resolve([]),
     supabase
       .from("task")
       .select("id, title, department, status, priority, start_date, due_date, due_time, estimate_minutes, assignee_id, accepted_at, updated_at", { count: "exact" })
-      .eq("assignee_id", me.id)
+      .or(mineOr(me.id, owned))
       .in("status", ["todo", "doing", "blocked"])
       .order("due_date", { ascending: true, nullsFirst: false })
       .order("priority", { ascending: true })

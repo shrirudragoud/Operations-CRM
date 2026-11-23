@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { cookies, headers } from "next/headers";
 import { after } from "next/server";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AttendanceChip } from "@/components/attendance-controls";
 import { CommandSearch } from "@/components/command-search";
@@ -13,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { requireMe } from "@/lib/auth";
 import { navFor } from "@/lib/nav";
-import { canCheckIn, canTrackTime, isRemote, type Me } from "@/lib/permissions";
+import { canAccess, canCheckIn, canTrackTime, isRemote, type Me } from "@/lib/permissions";
 import { getMyOpenSession } from "@/lib/queries/attendance";
 import { getRunningTimer } from "@/lib/queries/time";
 import { finishRequest, PATH_HEADER, RID_HEADER, T0_HEADER, TIMING_ON } from "@/lib/timing";
@@ -66,6 +67,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <Suspense fallback={null}>
             <RunningTimer me={me} />
           </Suspense>
+          {canAccess(me, "assistant") && <AssistantPanel />}
           <Suspense fallback={null}>
             <NotificationBell meId={me.id} />
           </Suspense>

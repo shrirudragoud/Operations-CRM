@@ -26,7 +26,7 @@ export async function unreadNotificationCount(supabase: Supabase, meId: string) 
 export async function listNotifications(supabase: Supabase, meId: string, limit = 30) {
   return supabase
     .from("notification")
-    .select("id, kind, task_id, meeting_id, message, created_at, read_at, actor:staff!notification_actor_id_fkey(full_name)")
+    .select("id, kind, task_id, meeting_id, request_id, message, created_at, read_at, actor:staff!notification_actor_id_fkey(full_name)")
     .eq("recipient_id", meId)
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })

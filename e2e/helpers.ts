@@ -15,7 +15,7 @@ export function resetDatabase(founderEmail: string) {
     truncate ops.audit_log, ops.meeting_attendee, ops.meeting, ops.meeting_series, ops.task_recurrence, ops.task_view, ops.daily_log, ops.notification, ops.task, ops.feedback, ops.activity, ops.deal_line, ops.deal, ops.contact, ops.institution,
              ops.kpi_target, ops.invite cascade;
     truncate ops.attendance_session, ops.attendance_request, ops.attendance_day_mark, ops.attendance_failure, ops.office_network, ops.office_holiday cascade;
-    truncate ops.hr_access_log, ops.leave_request, ops.leave_ledger, ops.staff_document, ops.company_document, ops.policy_ack, ops.hr_request, ops.hr_request_message, ops.onboarding_task, ops.staff_profile cascade;
+    truncate ops.hr_access_log, ops.leave_request, ops.leave_ledger, ops.staff_document, ops.company_document, ops.policy_ack, ops.hr_request, ops.hr_request_file, ops.hr_request_message, ops.onboarding_task, ops.staff_profile cascade;
     update ops.office_settings set start_time = '11:00', end_time = '17:00', grace_minutes = 15, work_days = '{1,2,3,4,5,6}', ip_header = 'cf-connecting-ip', ip_hops = 1, flags_on = false;
     delete from ops.leave_type where name like 'ZZ %';
     delete from ops.office_holiday where name like 'ZZ %';

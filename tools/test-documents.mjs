@@ -124,9 +124,9 @@ export default async function documentTests(t) {
   await expectVal('...and it is logged', `select count(*) from ops.hr_access_log where what like 'removed document%'`, 1);
 
   console.log('Expiry list');
-  await expectOk('a paper that expires in 10 days', S, addDoc(S, S, 'certificate', 'Cert soon', path(S), 'current_date + 10'));
-  await expectOk('a paper that expired yesterday', O, addDoc(O, O, 'certificate', 'Cert gone', path(O), 'current_date - 1'));
-  await expectOk('a paper that expires in 90 days', O, addDoc(O, O, 'certificate', 'Cert later', path(O), 'current_date + 90'));
+  await expectOk('a paper that expires in 10 days', S, addDoc(S, S, 'certificate', 'Cert soon', path(S), 'ops.today_ist() + 10'));
+  await expectOk('a paper that expired yesterday', O, addDoc(O, O, 'certificate', 'Cert gone', path(O), 'ops.today_ist() - 1'));
+  await expectOk('a paper that expires in 90 days', O, addDoc(O, O, 'certificate', 'Cert later', path(O), 'ops.today_ist() + 90'));
   await expectRows('HR sees the two within 30 days', W, `select * from ops.expiring_documents(30)`, 2);
   await expectScalar('...the expired one comes first with negative days', W, `select days_left as v from ops.expiring_documents(30)`, -1);
   await expectRows('...a wider window shows all three', W, `select * from ops.expiring_documents(120)`, 3);
