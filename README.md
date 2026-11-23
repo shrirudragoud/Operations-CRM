@@ -41,8 +41,7 @@ Schema `ops`: 36 tables, 5 views, business rules (state machines, automations, i
 row-level security and invite-only access, in `supabase/migrations/0001-0010`.
 
 ## Apply it to the hosted ops project
-See `docs/HANDOFF.md` "Apply the database" for the exact, ordered steps (SQL editor or CLI). Never run
-these against the IDE product database (`Idea_labs_DB`).
+See `docs/HANDOFF.md` "Apply the database" for the exact, ordered steps (SQL editor or CLI).
 
 ## Rules enforced in the database
 - Institution stage only moves forward (founder can correct).
