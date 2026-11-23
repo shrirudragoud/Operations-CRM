@@ -1,0 +1,10 @@
+# systemd user unit: sends the browser-notification queue. Not installed by the repo (see docs/RUNBOOK.md, "Browser notifications").
+[Unit]
+Description=Hard-Code Ops: send browser notifications
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/Codebase V 4/OPS CRM/Operations-CRM
+# The same file as the mail sender, plus VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT. chmod 600, outside the repo, never committed.
+EnvironmentFile=%h/.config/hardcode-ops/mail.env
+ExecStart=/usr/bin/env node scripts/send-push.mjs

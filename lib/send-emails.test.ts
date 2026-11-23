@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { compose, resendSender, sendEmails } from "../scripts/send-emails.mjs";
 
-type Row = { id: number; recipient_id: string; to_email: string; full_name: string; kind: string; subject: string; body: string; link: string | null; attempts: number };
-const row = (over: Partial<Row>): Row => ({ id: 1, recipient_id: "a", to_email: "a@x.in", full_name: "Asha Rao", kind: "assigned", subject: "S", body: "B", link: "/tasks/1", attempts: 1, ...over });
+type Row = { id: number; recipient_id: string; to_email: string; full_name: string; kind: string; subject: string; body: string; link: string | null; attempts: number; lane: string };
+const row = (over: Partial<Row>): Row => ({ id: 1, recipient_id: "a", to_email: "a@x.in", full_name: "Asha Rao", kind: "assigned", subject: "S", body: "B", link: "/tasks/1", attempts: 1, lane: "notice", ...over });
 
 function fake(rows: Row[]) {
   const finished: Record<string, unknown>[] = [];
@@ -71,6 +71,40 @@ describe("sendEmails", () => {
     expect(sent).toEqual(["a@x.in", "b@x.in"]);
     expect(s).toMatchObject({ claimed: 3, people: 2, sent: 2, failed: 0 });
     expect(f.finished[0]).toMatchObject({ p_ids: [1, 2], p_ok: true, p_provider_id: "re_9" });
+  });
+  it("keeps direct mail apart from a person's notification digest", async () => {
+    const f = fake([row({ id: 1, lane: "direct", subject: "Reply" }), row({ id: 2 }), row({ id: 3 })]);
+    const subjects: string[] = [];
+    const s = await sendEmails(f.client, { ...opts, send: async (m: { subject: string }) => (subjects.push(m.subject), { ok: true, id: "re_1" }) });
+    expect(s).toMatchObject({ claimed: 3, people: 2, sent: 2 });
+    expect(subjects[0]).toBe("Reply");
+    expect(f.finished.map((x) => x.p_ids)).toEqual([[1], [2, 3]]);
+  });
+  it("asks the database for the reserve and the cap", async () => {
+    const f = fake([]);
+    const seen: Record<string, unknown>[] = [];
+    f.client.schema = () => ({ rpc: async (_n: string, a: Record<string, unknown>) => (seen.push(a), { data: [], error: null }) });
+    await sendEmails(f.client, { ...opts, dailyCap: 80, reserve: 25, send: async () => ({ ok: true, id: "x" }) });
+    expect(seen[0]).toMatchObject({ p_daily_cap: 80, p_reserve: 25 });
+  });
+  it("prunes old queue rows only when asked, and a failed prune does not stop the run", async () => {
+    const calls: string[] = [];
+    const logs: { event: string }[] = [];
+    const client = {
+      schema: () => ({
+        rpc: async (name: string) => {
+          calls.push(name);
+          return name === "prune_outboxes" ? { data: null, error: { message: "boom" } } : { data: [], error: null };
+        },
+      }),
+    };
+    const run = (prune: boolean) => sendEmails(client, { ...opts, prune, log: ((e: { event: string }) => void logs.push(e)) as () => void, send: async () => ({ ok: true, id: "x" }) });
+    await run(false);
+    expect(calls).toEqual(["claim_emails"]);
+    calls.length = 0;
+    await run(true);
+    expect(calls).toEqual(["prune_outboxes", "claim_emails"]);
+    expect(logs).toContainEqual({ event: "prune-failed", error: "boom" });
   });
   it("hands a failed person back to the database to retry", async () => {
     const f = fake([row({ id: 1 })]);

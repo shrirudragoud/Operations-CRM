@@ -44,6 +44,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // The service worker must always be fetched fresh, or a fix to it would not reach browsers for a day.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Type", value: "text/javascript; charset=utf-8" },
+        ],
+      },
+      {
         source: "/:path*",
         headers: [
           { key: "Content-Security-Policy", value: csp },

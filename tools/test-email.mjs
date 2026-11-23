@@ -79,7 +79,7 @@ export default async function emailTests(t) {
   await reset();
   await notify(S, 'assigned', 'A'); await notify(S, 'assigned', 'B'); await notify(T2, 'assigned', 'C');
   await db.exec(`insert into ops.email_pref (staff_id, enabled) values ('${S}', true)`);
-  await expectVal('the daily cap limits how many people are mailed', `select count(distinct recipient_id) from ops.claim_emails(50, 1)`, 1);
+  await expectVal('the daily cap limits how many people are mailed', `select count(distinct recipient_id) from ops.claim_emails(50, 1, 0)`, 1);
   await expectVal('...and all of that person\'s rows come together', `select count(*) from ops.email_outbox where status = 'sending'`, 2);
   await expectVal('...the other person waits', `select count(*) from ops.email_outbox where status = 'queued'`, 1);
   const ids = (await db.query(`select array_agg(id) a from ops.email_outbox where status = 'sending'`)).rows[0].a;
@@ -131,6 +131,55 @@ export default async function emailTests(t) {
   await db.query(`select * from ops.claim_emails()`);
   await db.exec(`update ops.email_outbox set next_attempt_at = now() - interval '11 minutes'`);
   await expectVal('a row stuck while sending is handed out again', `select count(*) from ops.claim_emails()`, 1);
+
+  console.log('Lanes (0046): direct mail goes first and has room kept for it');
+  const direct = (to, subject = 'Customer reply') =>
+    db.exec(`insert into ops.email_outbox (recipient_id, to_email, kind, lane, subject, body) values ('${to}', 'x@y.in', 'reply', 'direct', '${subject}', 'b')`);
+  await reset();
+  await expectOk('a test email is queued', T2, `select ops.queue_test_email()`);
+  await expectVal('...in the direct lane', `select lane from ops.email_outbox where kind = 'test'`, 'direct');
+  await reset();
+  await notify(S, 'assigned', 'Notice for S');
+  await expectVal('a notification is in the notice lane', `select lane from ops.email_outbox where recipient_id = '${S}'`, 'notice');
+  await direct(T2);
+  await expectVal('direct mail is claimed before notices when room is short', `select lane from ops.claim_emails(1, 90, 0)`, 'direct');
+  await expectVal('...the notice waits', `select count(*) from ops.email_outbox where status = 'queued' and lane = 'notice'`, 1);
+
+  await reset();
+  await notify(S, 'assigned', 'N1'); await notify(F, 'assigned', 'N2'); await notify(W, 'assigned', 'N3');
+  await expectVal('notices stop short of the cap by the reserve (cap 3, reserve 2: one person)', `select count(distinct recipient_id) from ops.claim_emails(50, 3, 2)`, 1);
+  await reset();
+  await notify(S, 'assigned', 'N1'); await direct(T2); await direct(P);
+  await expectVal('direct mail may use the whole cap', `select count(*) from ops.claim_emails(50, 3, 2)`, 3);
+
+  await reset();
+  await notify(S, 'assigned', 'Already sent');
+  const sent = (await db.query(`select id from ops.claim_emails(50, 90, 0)`)).rows.map((r) => r.id);
+  await db.query(`select ops.finish_emails('{${sent.join(',')}}', true, null, 're_notice')`);
+  await notify(F, 'assigned', 'Next notice'); await direct(T2);
+  await expectVal('notice room used up: notices wait, direct mail still goes', `select string_agg(lane, ',') from ops.claim_emails(50, 3, 2)`, 'direct');
+  await expectVal('...the notice is still queued', `select count(*) from ops.email_outbox where status = 'queued' and lane = 'notice'`, 1);
+
+  await reset();
+  await notify(S, 'assigned', 'Digest item'); await direct(S, 'Reply to a customer');
+  await expectVal('one person with both lanes gets two separate groups', `select string_agg(lane, ',' order by lane) from ops.claim_emails()`, 'direct,notice');
+
+  await reset();
+  await direct(T2); await db.exec(`update ops.email_outbox set created_at = now() - interval '2 days'`);
+  await expectVal('direct mail two days old is still sent', `select count(*) from ops.claim_emails()`, 1);
+  await reset();
+  await direct(T2); await db.exec(`update ops.email_outbox set created_at = now() - interval '4 days'`);
+  await expectVal('direct mail four days old is dropped', `select count(*) from ops.claim_emails()`, 0);
+
+  await reset();
+  await direct(T2);
+  const dsent = (await db.query(`select id from ops.claim_emails()`)).rows.map((r) => r.id);
+  await db.query(`select ops.finish_emails('{${dsent.join(',')}}', true, null, 're_direct')`);
+  {
+    const r = (await expectOk('health separates direct mail', F, `select ops.email_health() as h`))?.rows[0]?.h;
+    r?.sent_direct_24h === 1 ? ok('...one direct mail sent') : bad('...one direct mail sent', JSON.stringify(r));
+  }
+  await expectErr('claim_emails is still not for people', F, `select * from ops.claim_emails(50, 90, 30)`, 'permission denied');
 
   console.log('Deleting a notification keeps the mail row');
   await reset();

@@ -990,6 +990,7 @@ export type Database = {
           provider_id: string | null
           created_at: string
           sent_at: string | null
+          lane: string
         }
         Insert: {
           id?: number
@@ -1007,6 +1008,7 @@ export type Database = {
           provider_id?: string | null
           created_at?: string
           sent_at?: string | null
+          lane?: string
         }
         Update: {
           id?: number
@@ -1024,6 +1026,7 @@ export type Database = {
           provider_id?: string | null
           created_at?: string
           sent_at?: string | null
+          lane?: string
         }
         Relationships: [
           {
@@ -2962,6 +2965,146 @@ export type Database = {
           },
         ]
       }
+      push_outbox: {
+        Row: {
+          id: number
+          notification_id: number | null
+          subscription_id: number
+          recipient_id: string
+          kind: string
+          title: string
+          body: string
+          link: string | null
+          status: string
+          attempts: number
+          next_attempt_at: string
+          last_error: string | null
+          created_at: string
+          sent_at: string | null
+        }
+        Insert: {
+          id?: number
+          notification_id?: number | null
+          subscription_id: number
+          recipient_id: string
+          kind: string
+          title: string
+          body: string
+          link?: string | null
+          status?: string
+          attempts?: number
+          next_attempt_at?: string
+          last_error?: string | null
+          created_at?: string
+          sent_at?: string | null
+        }
+        Update: {
+          id?: number
+          notification_id?: number | null
+          subscription_id?: number
+          recipient_id?: string
+          kind?: string
+          title?: string
+          body?: string
+          link?: string | null
+          status?: string
+          attempts?: number
+          next_attempt_at?: string
+          last_error?: string | null
+          created_at?: string
+          sent_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_outbox_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notification"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "push_outbox_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "push_outbox_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "push_subscription"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_pref: {
+        Row: {
+          staff_id: string
+          groups: string[]
+          updated_at: string
+        }
+        Insert: {
+          staff_id: string
+          groups?: string[]
+          updated_at?: string
+        }
+        Update: {
+          staff_id?: string
+          groups?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_pref_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_subscription: {
+        Row: {
+          id: number
+          staff_id: string
+          endpoint: string
+          p256dh_key: string
+          auth_key: string
+          user_agent: string | null
+          created_at: string
+          last_ok_at: string | null
+        }
+        Insert: {
+          id?: number
+          staff_id: string
+          endpoint: string
+          p256dh_key: string
+          auth_key: string
+          user_agent?: string | null
+          created_at?: string
+          last_ok_at?: string | null
+        }
+        Update: {
+          id?: number
+          staff_id?: string
+          endpoint?: string
+          p256dh_key?: string
+          auth_key?: string
+          user_agent?: string | null
+          created_at?: string
+          last_ok_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscription_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       review_item: {
         Row: {
           id: string
@@ -4718,9 +4861,17 @@ export type Database = {
         }
         Returns: string
       }
+      push_health: {
+        Args: never
+        Returns: Json
+      }
       queue_test_email: {
         Args: never
         Returns: undefined
+      }
+      queue_test_push: {
+        Args: never
+        Returns: number
       }
       register_task_attachment: {
         Args: {
@@ -4733,6 +4884,12 @@ export type Database = {
           p_inline?: boolean
         }
         Returns: string
+      }
+      remove_push_subscription: {
+        Args: {
+          p_endpoint: string
+        }
+        Returns: undefined
       }
       remove_task_attachment: {
         Args: {
@@ -4801,6 +4958,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      save_push_subscription: {
+        Args: {
+          p_endpoint: string
+          p_p256dh: string
+          p_auth: string
+          p_user_agent?: string
+        }
+        Returns: undefined
+      }
       sees_attendance: {
         Args: {
           p_staff: string
@@ -4846,6 +5012,12 @@ export type Database = {
         Args: {
           p_task: string
           p_done: boolean
+        }
+        Returns: undefined
+      }
+      set_push_groups: {
+        Args: {
+          p_groups: string[]
         }
         Returns: undefined
       }

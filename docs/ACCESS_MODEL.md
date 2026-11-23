@@ -49,6 +49,7 @@ Bootstrap: `supabase/seed_founder.sql` inserts the first founder invite.
 | Tasks, task comments, task history | all | read: their departments' + assigned to / created by them; create: any internal role, for anyone; edit details and reassign: manager only (founder, creator, department lead); claim, hand back, accept, move status: assignee or manager; delete: lead / founder | same | none (open: partners can finish follow-ups assigned to them; confirm) |
 | Task watchers, notifications | all | watchers: anyone who can see the task adds themselves or others; remove yourself, managers remove anyone; notifications: only the recipient | same | none |
 | Email choices, mail queue (D-email, 0045) | own choices only | own choices; own queued mail rows read-only; nobody else's. The queue is written only by a trigger and the sender script (service role) | same | none |
+| Browser devices, choices, push queue (0047) | own devices and choices only (a device is created or moved by `save_push_subscription`, removed by `remove_push_subscription`); own queued pushes read-only | same | same | none |
 | Fixed tasks, saved task views | all | fixed tasks: read by internal roles, written by a founder or the department's lead; views: own, plus shared ones | read only | none |
 | Time entries | all | read: own, a task's managers, founder; write: own for 14 days (internal roles that can write) | none | none |
 | Daily log | all | read: own, a lead of the same department, founder; write: own for 7 days | none | none |

@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { initials } from "@/lib/format";
+import { releaseThisDevice } from "@/lib/push-client";
 import { DEPARTMENT_LABELS, ROLE_LABELS, type Me } from "@/lib/permissions";
 
 export function UserMenu({ me }: { me: Me }) {
@@ -46,7 +47,16 @@ export function UserMenu({ me }: { me: Me }) {
         <DropdownMenuItem asChild>
           <Link href="/account"><KeyRoundIcon aria-hidden /> Account and password</Link>
         </DropdownMenuItem>
-        <form action="/auth/signout" method="post">
+        <form
+          action="/auth/signout"
+          method="post"
+          onSubmit={(e) => {
+            // Stop this computer showing the next notification meant for the person who is leaving.
+            e.preventDefault();
+            const form = e.currentTarget;
+            void releaseThisDevice().finally(() => form.submit());
+          }}
+        >
           <DropdownMenuItem asChild>
             <button type="submit" className="w-full">
               <LogOutIcon aria-hidden /> Sign out

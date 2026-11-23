@@ -7,6 +7,10 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/auth/callback")).toBe(true);
     expect(isPublicPath("/api/health")).toBe(true);
   });
+  it("serves the service worker without a session so registration is not redirected", () => {
+    expect(isPublicPath("/sw.js")).toBe(true);
+    expect(isPublicPath("/sw.js/other")).toBe(false);
+  });
   it("keeps everything else behind sign-in", () => {
     expect(isPublicPath("/")).toBe(false);
     expect(isPublicPath("/attendance")).toBe(false);

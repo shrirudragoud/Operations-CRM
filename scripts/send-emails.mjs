@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Sends the email queue (ops.email_outbox). Run it every minute from a timer (deploy/send-emails.timer).
 //   SUPABASE_URL=... SUPABASE_SECRET_KEY=... RESEND_API_KEY=... MAIL_FROM="Hard-Code Ops <notifications@hard-code.in>" \
-//   APP_URL=https://ops.hard-code.in node scripts/send-emails.mjs [--daily-cap 90]
+//   APP_URL=https://ops.hard-code.in node scripts/send-emails.mjs [--daily-cap 90] [--reserve 30]
+// Of the daily cap, --reserve mails are kept for "direct" mail (a person's own test mail, later customer replies); automatic
+// notification mail stops that many short, and direct mail is always sent first (ops.claim_emails, migration 0046).
 // The database says who is mailed and what (ops.queue_notification_email); this only delivers. One mail per person per run:
 // several notifications that piled up together are folded into one message, which also keeps us inside the provider's
 // free daily limit. Failures are retried by the database (ops.finish_emails). Secrets are read from the environment only.
@@ -61,17 +63,27 @@ export function resendSender(apiKey, fetchImpl = fetch) {
 }
 
 /** @param client a supabase-js client created with the secret key */
-export async function sendEmails(client, { send, from, appUrl, dailyCap = 90, log = () => {} }) {
+export async function sendEmails(client, { send, from, appUrl, dailyCap = 90, reserve = 30, prune = false, log = () => {} }) {
   const ops = client.schema("ops");
   const summary = { claimed: 0, people: 0, sent: 0, failed: 0, stoppedEarly: false };
 
-  const { data, error } = await ops.rpc("claim_emails", { p_limit: 50, p_daily_cap: dailyCap });
+  if (prune) {
+    const { data: pruned, error: pe } = await ops.rpc("prune_outboxes");
+    if (pe) log({ event: "prune-failed", error: pe.message });
+    else log({ event: "pruned", ...pruned });
+  }
+
+  const { data, error } = await ops.rpc("claim_emails", { p_limit: 50, p_daily_cap: dailyCap, p_reserve: reserve });
   if (error) throw new Error(`claim_emails: ${error.message}`);
   const rows = data ?? [];
   summary.claimed = rows.length;
 
+  // One mail per person per lane: direct mail (claimed first) is never folded into a notification digest.
   const byPerson = new Map();
-  for (const r of rows) byPerson.set(r.recipient_id, [...(byPerson.get(r.recipient_id) ?? []), r]);
+  for (const r of rows) {
+    const key = `${r.lane ?? "notice"}:${r.recipient_id}`;
+    byPerson.set(key, [...(byPerson.get(key) ?? []), r]);
+  }
   summary.people = byPerson.size;
 
   const finish = async (ids, ok, extra = {}) => {
@@ -127,6 +139,8 @@ async function main() {
     from,
     appUrl,
     dailyCap: flag(args, "--daily-cap", 90),
+    reserve: flag(args, "--reserve", 30),
+    prune: new Date().getMinutes() === 7,
     log,
   });
   if (summary.claimed > 0 || summary.failed > 0) log({ event: "summary", ...summary });

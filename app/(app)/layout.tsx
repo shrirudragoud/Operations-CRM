@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AttendanceChip } from "@/components/attendance-controls";
 import { CommandSearch } from "@/components/command-search";
 import { NotificationBell } from "@/components/notification-bell";
+import { PushSync } from "@/components/push-sync";
 import { TimerChip } from "@/components/timer-chip";
 import { TaskAutomation } from "@/components/task-automation";
 import { UserMenu } from "@/components/user-menu";
@@ -14,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { requireMe } from "@/lib/auth";
 import { navFor } from "@/lib/nav";
+import { vapidPublicKey } from "@/lib/push-config";
 import { canAccess, canCheckIn, canTrackTime, isRemote, type Me } from "@/lib/permissions";
 import { getMyOpenSession } from "@/lib/queries/attendance";
 import { getRunningTimer } from "@/lib/queries/time";
@@ -78,6 +80,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </main>
       </SidebarInset>
       <TaskAutomation />
+      {vapidPublicKey() && <PushSync />}
       <Suspense>
         <WelcomeToast name={me.full_name} />
       </Suspense>

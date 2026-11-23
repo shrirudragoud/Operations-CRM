@@ -36,6 +36,9 @@ services:
       # Without it the assistant stays off. Losing it means everyone has to add their key again. GEMINI_API_BASE is for tests only.
       AI_KEY_SECRET: ${AI_KEY_SECRET:-}
       GEMINI_API_BASE: ${GEMINI_API_BASE:-}
+      # Browser notifications: the PUBLIC half of the key pair (npx web-push generate-vapid-keys). Empty keeps the feature off.
+      # The private half lives only in ~/.config/hardcode-ops/mail.env for the send-push script, never in the app.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
 
   # Virus scanner for task files. Internal only (no published port). Start it with `docker compose --profile scan up -d clamav`;
   # it downloads signatures on first start (a few minutes) and is healthy once clamd answers.

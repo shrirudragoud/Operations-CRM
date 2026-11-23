@@ -6,7 +6,7 @@ import { logProxy, PATH_HEADER, RID_HEADER, T0_HEADER, TIMING_ON } from "@/lib/t
 
 /** Paths reachable without a session. Everything else needs a signed-in user. */
 export function isPublicPath(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/api/health" || pathname.startsWith("/auth/");
+  return pathname === "/login" || pathname === "/api/health" || pathname === "/sw.js" || pathname.startsWith("/auth/");
 }
 
 // Runs on every matched request (docs/ARCHITECTURE.md, corrected quickstart):

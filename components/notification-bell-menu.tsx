@@ -4,24 +4,63 @@ import { useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BellIcon } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { clearNotifications, markNotificationsRead } from "@/lib/actions/task-collab";
+import { notificationHref } from "@/lib/notification-href";
+import { createClient } from "@/utils/supabase/client";
 
 export type NotificationItem = { id: number; kind: string; href: string | null; message: string; at: string; read: boolean; actor: string | null };
 
-const REFRESH_MS = 60_000;
+// New notifications arrive over a live connection (Supabase Realtime, filtered to me; RLS applies). The slow refresh is only
+// a safety net for a dropped connection or a missed event.
+const SAFETY_REFRESH_MS = 180_000;
+const BURST_MS = 400;
 
-export function NotificationBellMenu({ unread, items }: { unread: number; items: NotificationItem[] }) {
+type Incoming = { kind?: string; message?: string; task_id?: string | null; meeting_id?: string | null; request_id?: string | null };
+
+export function NotificationBellMenu({ meId, unread, items }: { meId: string; unread: number; items: NotificationItem[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     const t = setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
-    }, REFRESH_MS);
+    }, SAFETY_REFRESH_MS);
     return () => clearInterval(t);
   }, [router]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let burst: ReturnType<typeof setTimeout> | undefined;
+    let channel: ReturnType<typeof supabase.channel> | undefined;
+    let closed = false;
+
+    // The socket needs the signed-in person's token before it can see their rows.
+    supabase.auth.getSession().then(({ data }) => {
+      if (closed) return;
+      if (data.session) supabase.realtime.setAuth(data.session.access_token);
+      channel = supabase
+        .channel(`notifications:${meId}`)
+        .on("postgres_changes", { event: "INSERT", schema: "ops", table: "notification", filter: `recipient_id=eq.${meId}` }, (payload) => {
+          const n = payload.new as Incoming;
+          if (document.visibilityState === "visible" && n.message) {
+            const href = notificationHref({ kind: n.kind ?? "", task_id: n.task_id, meeting_id: n.meeting_id, request_id: n.request_id });
+            toast(n.message, href ? { action: { label: "Open", onClick: () => router.push(href) } } : undefined);
+          }
+          clearTimeout(burst);
+          burst = setTimeout(() => router.refresh(), BURST_MS);
+        })
+        .subscribe();
+    });
+
+    return () => {
+      closed = true;
+      clearTimeout(burst);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [meId, router]);
 
   return (
     <Popover>

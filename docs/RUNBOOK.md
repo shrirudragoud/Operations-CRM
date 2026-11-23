@@ -119,5 +119,31 @@ Set up once:
 
 Limits and behaviour: the free Resend plan allows 100 mails a day, so the script folds a person's pending notifications into one
 mail and stops at 90 mails per rolling 24 hours (`--daily-cap`). Failed mail is retried after 1, 4, 9 and 16 minutes, then marked
-failed. A wrong key or unverified domain stops the run and keeps the mail for five minutes without using up tries. Mail older
-than a day is dropped as stale.
+failed. A wrong key or unverified domain stops the run and keeps the mail for five minutes without using up tries. Automatic mail
+older than a day is dropped as stale.
+
+Two lanes (0046): `notice` is automatic mail from notifications; `direct` is mail a person is waiting for (the test mail now, customer
+replies in the shared inbox later). Direct mail is claimed first, is never folded into a digest, and stays valid for 3 days. Of the
+90 a day, 30 are reserved for direct mail (`--reserve`), so notices stop at 60 and a busy day of notifications cannot starve a
+customer reply. Resend Pro (50,000 a month) removes the pressure; raise `--daily-cap` and lower `--reserve` then.
+
+## Browser notifications (0047)
+Same topics as email, delivered as a pop-up on the device (Web Push) and a toast inside an open tab. The database queues one
+`ops.push_outbox` row per notification per device (`ops.queue_notification_push`); `scripts/send-push.mjs` (a systemd timer every
+10 seconds) delivers them. People turn it on per device on **Account > Browser notifications**. Founder sees the queue counts there.
+
+Set up once:
+1. Generate a key pair: `npx web-push generate-vapid-keys --json`. Put `VAPID_PUBLIC_KEY` in `.env.local` (the app reads it at runtime,
+   `docker compose` passes it through) and `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT=mailto:notifications@hard-code.in`
+   in `~/.config/hardcode-ops/mail.env`. The private key never goes in the app, `.env.local` or git. Changing the pair turns every
+   device off; people switch it on again.
+2. Apply migrations 0046 and 0047, rebuild the app (`public/sw.js` is the service worker; `/sw.js` is public and never cached).
+3. Install the units: copy `deploy/send-push.{service,timer}` to `~/.config/systemd/user/`,
+   `systemctl --user daemon-reload && systemctl --user enable --now send-push.timer`. Logs: `journalctl --user -u send-push`.
+4. On Account, switch it on for the device and press "Send a test notification".
+
+Behaviour: a push older than 1 hour is dropped (email is the fallback); a failed send retries after 10, 40 and 90 seconds, then fails;
+a device the push service reports gone (404/410) is deleted; devices unseen for 120 days and finished queue rows older than 30 days
+are pruned hourly (`prune_outboxes`, run by the email timer). The service worker stays quiet when a tab is open and visible, because
+the in-app toast already covers it. Signing out releases that device so a shared computer does not keep showing someone's notifications.
+iPhone and iPad are not supported (no installed web app).

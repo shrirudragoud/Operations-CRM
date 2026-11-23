@@ -1,5 +1,6 @@
 import { listNotifications, unreadNotificationCount } from "@/lib/queries/task-collab";
 import { formatDateTime } from "@/lib/format";
+import { notificationHref } from "@/lib/notification-href";
 import { createClient } from "@/utils/supabase/server";
 import { NotificationBellMenu } from "./notification-bell-menu";
 
@@ -10,11 +11,11 @@ export async function NotificationBell({ meId }: { meId: string }) {
   const items = (list.data ?? []).map((n) => ({
     id: n.id,
     kind: n.kind,
-    href: n.task_id ? `/tasks/${n.task_id}` : n.meeting_id ? `/calendar/${n.meeting_id}` : n.kind === "hr_file" ? "/me/documents" : n.kind === "request_hr_reply" ? "/me/requests" : n.request_id ? "/hr/requests" : null,
+    href: notificationHref(n),
     message: n.message,
     at: formatDateTime(n.created_at),
     read: n.read_at !== null,
     actor: n.actor?.full_name ?? null,
   }));
-  return <NotificationBellMenu unread={count} items={items} />;
+  return <NotificationBellMenu meId={meId} unread={count} items={items} />;
 }
