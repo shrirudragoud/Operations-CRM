@@ -62,6 +62,150 @@ const button = (href, text) =>
   `<td bgcolor="${INK}" style="border-radius:8px"><a href="${esc(href)}" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px">${esc(text)}</a></td>` +
   `</tr></table>`;
 
+const IST = "Asia/Kolkata";
+const fmt = (d, o, tz = IST) => new Intl.DateTimeFormat("en-IN", { timeZone: tz, ...o }).format(d).replace(/\s/g, " ").replace(/, (\d{4})$/, " $1");
+const DAY = { weekday: "short", day: "numeric", month: "short", year: "numeric" };
+const TIME = { hour: "numeric", minute: "2-digit", hour12: true };
+const dayOf = (d) => fmt(d, DAY);
+const timeOf = (d) => fmt(d, TIME).toLowerCase();
+const PRIORITY = { 1: "Urgent", 2: "High", 3: "Normal", 4: "Low" };
+const KIND_LABELS = { experience_letter: "Experience letter", address_proof: "Address proof", salary_certificate: "Salary certificate", detail_change: "Detail change", other: "Other" };
+const STATE_LABELS = { open: "Open", in_progress: "In progress", done: "Done", rejected: "Rejected" };
+const title = (s) => String(s).replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const isUrl = (s) => /^https?:\/\/\S+$/i.test(String(s ?? ""));
+
+/** "Wed, 25 Nov 2026, 2:30 pm to 3:30 pm IST" (the end carries its own date when the meeting crosses midnight). */
+export function whenText(startsAt, endsAt) {
+  if (!startsAt) return null;
+  const s = new Date(startsAt);
+  if (Number.isNaN(s.getTime())) return null;
+  const e = endsAt ? new Date(endsAt) : null;
+  if (!e || Number.isNaN(e.getTime())) return `${dayOf(s)}, ${timeOf(s)} IST`;
+  return dayOf(s) === dayOf(e) ? `${dayOf(s)}, ${timeOf(s)} to ${timeOf(e)} IST` : `${dayOf(s)}, ${timeOf(s)} to ${dayOf(e)}, ${timeOf(e)} IST`;
+}
+function dueText(date, time) {
+  if (!date) return null;
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = fmt(d, DAY, "UTC");
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(time ?? ""));
+  if (!m) return day;
+  const h = Number(m[1]);
+  return `${day}, ${h % 12 || 12}:${m[2]} ${h < 12 ? "am" : "pm"}`;
+}
+
+/** The facts behind a notification (ops.email_details) as label/value rows, plus an optional excerpt. */
+export function detailRows(d) {
+  if (!d || typeof d !== "object") return { rows: [], note: null };
+  const rows = [];
+  const add = (label, value, href) => value != null && value !== "" && rows.push({ label, value: String(value), href });
+  if (d.type === "task") {
+    add("Due", dueText(d.due_date, d.due_time));
+    add("Priority", PRIORITY[d.priority]);
+    add("Assignee", d.assignee);
+    add("Assigned by", d.assigned_by);
+    add("Department", d.department && title(d.department));
+    add("Status", d.status && title(d.status));
+    return { rows, note: d.description || null };
+  }
+  if (d.type === "meeting") {
+    add("When", whenText(d.starts_at, d.ends_at));
+    add("Where", d.location, isUrl(d.location) ? d.location : undefined);
+    add("Organizer", d.organizer);
+    const names = Array.isArray(d.attendees) ? d.attendees : [];
+    const hidden = Number(d.attendee_count ?? names.length) - names.length;
+    if (names.length) add("With", names.join(", ") + (hidden > 0 ? ` and ${hidden} more` : ""));
+    if (d.status === "cancelled") add("Reason", d.cancel_reason);
+    return { rows, note: d.description || null };
+  }
+  if (d.type === "request") {
+    add("Request", d.subject);
+    add("Type", KIND_LABELS[d.kind] ?? d.kind);
+    add("Status", STATE_LABELS[d.state] ?? d.state);
+    add("From", d.from);
+    return { rows, note: null };
+  }
+  return { rows, note: null };
+}
+
+/** One line under a digest item. */
+export function sublineOf(d) {
+  if (!d) return "";
+  if (d.type === "task") return [dueText(d.due_date, d.due_time) && `Due ${dueText(d.due_date, d.due_time)}`, PRIORITY[d.priority] && d.priority < 3 ? PRIORITY[d.priority] : null].filter(Boolean).join(" · ");
+  if (d.type === "meeting") return [whenText(d.starts_at, null), d.location].filter(Boolean).join(" · ");
+  if (d.type === "request") return [d.subject, STATE_LABELS[d.state]].filter(Boolean).join(" · ");
+  return "";
+}
+
+const icsEscape = (s) => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const icsStamp = (d) => new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+function icsFold(line) {
+  const out = [];
+  let cur = "";
+  let bytes = 0;
+  for (const ch of line) {
+    const n = Buffer.byteLength(ch);
+    if (bytes + n > 74) { out.push(cur); cur = " "; bytes = 1; }
+    cur += ch;
+    bytes += n;
+  }
+  out.push(cur);
+  return out.join("\r\n");
+}
+
+/** An "add to calendar" file for a meeting mail, or null. The same UID with a higher SEQUENCE updates or cancels it. */
+export function meetingIcs(kind, d, url) {
+  const cancel = kind === "meeting_cancel";
+  if (!["meeting_invite", "meeting_update", "meeting_cancel"].includes(kind) || !d || d.type !== "meeting" || !d.meeting_id) return null;
+  if (!d.starts_at || !d.ends_at) return null;
+  const start = new Date(d.starts_at);
+  const end = new Date(d.ends_at);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const changed = new Date(d.updated_at);
+  const stamp = Number.isNaN(changed.getTime()) ? start : changed;
+  const sequence = Math.max(0, Math.floor((stamp.getTime() - Date.UTC(2020, 0, 1)) / 60_000));
+  const description = [d.description, cancel && d.cancel_reason ? `Cancelled: ${d.cancel_reason}` : null, url].filter(Boolean).join("\n\n");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Hard-Code//Ops//EN",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${cancel ? "CANCEL" : "PUBLISH"}`,
+    "BEGIN:VEVENT",
+    `UID:meeting-${d.meeting_id}@hard-code.in`,
+    `DTSTAMP:${icsStamp(stamp)}`,
+    `SEQUENCE:${sequence}`,
+    `DTSTART:${icsStamp(start)}`,
+    `DTEND:${icsStamp(end)}`,
+    `SUMMARY:${icsEscape(d.title ?? "Meeting")}`,
+    ...(d.location ? [`LOCATION:${icsEscape(d.location)}`] : []),
+    ...(description ? [`DESCRIPTION:${icsEscape(description)}`] : []),
+    ...(url ? [`URL:${url}`] : []),
+    ...(d.organizer_email ? [`ORGANIZER;CN=${icsEscape(d.organizer ?? d.organizer_email).replace(/[":]/g, "")}:mailto:${d.organizer_email}`] : []),
+    `STATUS:${cancel ? "CANCELLED" : "CONFIRMED"}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return { filename: "meeting.ics", content: Buffer.from(lines.map(icsFold).join("\r\n") + "\r\n").toString("base64"), contentType: `text/calendar; charset=utf-8; method=${cancel ? "CANCEL" : "PUBLISH"}` };
+}
+
+const detailTable = (rows) =>
+  rows.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 0;border-top:1px solid ${LINE}">` +
+      rows
+        .map(
+          (r) =>
+            `<tr><td valign="top" style="padding:8px 12px 8px 0;border-bottom:1px solid ${LINE};width:96px;font-size:13px;color:${MUTED}">${esc(r.label)}</td>` +
+            `<td valign="top" style="padding:8px 0;border-bottom:1px solid ${LINE};font-size:14px;line-height:1.45;color:${INK}">` +
+            (r.href ? `<a href="${esc(r.href)}" style="color:${INK}">${esc(r.value)}</a>` : esc(r.value)) +
+            `</td></tr>`,
+        )
+        .join("") +
+      `</table>`
+    : "";
+const noteBlock = (note) =>
+  note ? `<p style="margin:14px 0 0;padding-left:12px;border-left:3px solid ${LINE};font-size:14px;line-height:1.5;color:#52525b">${esc(note)}</p>` : "";
+
 /** One person's claimed rows -> one message. */
 export function compose(rows, appUrl) {
   const base = appUrl.replace(/\/+$/, "");
@@ -74,14 +218,22 @@ export function compose(rows, appUrl) {
   const subject = single ? first.subject : `${rows.length} updates in Hard-Code Ops`;
   const account = `${base}/account`;
 
+  const detail = single ? detailRows(first.details) : { rows: [], note: null };
   const sections = TOPICS.map((t) => ({ ...t, items: listed.filter((r) => topicOf(r.kind) === t.id) })).filter((t) => t.items.length > 0);
 
   // Plain text
   const textBody = single
-    ? [`[${labelOf(first)}]`, first.body, `${buttonLabel(first.link)}: ${url(first)}`]
+    ? [
+        `[${labelOf(first)}]`,
+        first.body,
+        ...(detail.rows.length ? ["", ...detail.rows.map((r) => `${r.label}: ${r.value}`)] : []),
+        ...(detail.note ? ["", detail.note] : []),
+        "",
+        `${buttonLabel(first.link)}: ${url(first)}`,
+      ]
     : [
         `You have ${rows.length} updates.`,
-        ...sections.flatMap((t) => ["", t.label.toUpperCase(), ...t.items.map((r) => `- ${r.body}\n  ${url(r)}`)]),
+        ...sections.flatMap((t) => ["", t.label.toUpperCase(), ...t.items.map((r) => `- ${r.body}\n${sublineOf(r.details) ? `  ${sublineOf(r.details)}\n` : ""}  ${url(r)}`)]),
         ...(more > 0 ? ["", `...and ${more} more. Open ${base} to see them.`] : []),
       ];
   const text = [`Hi ${name},`, "", ...textBody, "", "--", `Choose what you get by email: ${account}`].join("\n");
@@ -90,6 +242,8 @@ export function compose(rows, appUrl) {
   const content = single
     ? `<p style="margin:0 0 10px">${pill(labelOf(first), topicOf(first.kind) === "due")}</p>` +
       `<p style="margin:0;font-size:18px;line-height:1.45;font-weight:600;color:${INK}">${esc(first.body)}</p>` +
+      detailTable(detail.rows) +
+      noteBlock(detail.note) +
       button(url(first), buttonLabel(first.link))
     : `<p style="margin:0 0 4px;font-size:15px;color:${INK}">You have <strong>${rows.length} updates</strong>.</p>` +
       sections
@@ -102,7 +256,9 @@ export function compose(rows, appUrl) {
                 (r) =>
                   `<tr><td style="padding:10px 0;border-top:1px solid ${LINE};font-size:15px;line-height:1.45">` +
                   `<a href="${esc(url(r))}" style="color:${INK};text-decoration:none">${esc(r.body)}</a>` +
-                  `<span style="color:${MUTED}"> &rarr;</span></td></tr>`,
+                  `<span style="color:${MUTED}"> &rarr;</span>` +
+                  (sublineOf(r.details) ? `<div style="margin-top:2px;font-size:13px;color:${MUTED}">${esc(sublineOf(r.details))}</div>` : "") +
+                  `</td></tr>`,
               )
               .join("") +
             `</table>`,
@@ -128,18 +284,20 @@ export function compose(rows, appUrl) {
     `</td></tr></table>` +
     `<p style="margin:14px 0 0;font-size:12px;color:#a1a1aa">Hard-Code &middot; hard-code.in</p>` +
     `</td></tr></table></body></html>`;
-  return { subject, text, html, unsubscribe: account };
+  const ics = single ? meetingIcs(first.kind, first.details, url(first)) : null;
+  return { subject, text, html, unsubscribe: account, attachments: ics ? [ics] : [] };
 }
 
 /** Delivery through Resend. Returns { ok, id } or { ok: false, error, permanent, fatal }. */
 export function resendSender(apiKey, fetchImpl = fetch) {
-  return async ({ from, to, subject, text, html, unsubscribe, idempotencyKey }) => {
+  return async ({ from, to, subject, text, html, unsubscribe, idempotencyKey, attachments = [] }) => {
     let res;
     try {
       res = await fetchImpl("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ from, to: [to], subject, text, html, headers: { "List-Unsubscribe": `<${unsubscribe}>` } }),
+        body: JSON.stringify({ from, to: [to], subject, text, html, headers: { "List-Unsubscribe": `<${unsubscribe}>` },
+          ...(attachments.length ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content, content_type: a.contentType })) } : {}) }),
         signal: AbortSignal.timeout(15_000),
       });
     } catch (e) {
@@ -169,6 +327,16 @@ export async function sendEmails(client, { send, from, appUrl, dailyCap = 90, re
   if (error) throw new Error(`claim_emails: ${error.message}`);
   const rows = data ?? [];
   summary.claimed = rows.length;
+
+  // The facts behind each message (due date, meeting time and place, ...). A mail still goes out without them.
+  if (rows.length) {
+    const { data: found, error: de } = await ops.rpc("email_details", { p_ids: rows.map((r) => r.id) });
+    if (de) log({ event: "details-failed", error: de.message });
+    else {
+      const byId = new Map((Array.isArray(found) ? found : []).map((d) => [d.id, d.details]));
+      for (const r of rows) r.details = byId.get(r.id) ?? null;
+    }
+  }
 
   // One mail per person per lane: direct mail (claimed first) is never folded into a notification digest.
   const byPerson = new Map();

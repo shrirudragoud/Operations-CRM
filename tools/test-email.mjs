@@ -183,6 +183,43 @@ export default async function emailTests(t) {
   }
   await expectErr('claim_emails is still not for people', F, `select * from ops.claim_emails(50, 90, 30)`, 'permission denied');
 
+  console.log('Details for the mail (0049)');
+  await reset();
+  const t1 = (await db.query(`insert into ops.task (title, assignee_id, assigned_by, priority, due_date, department, description, created_by)
+    values ('ZZ Mail task', '${S}', '${W}', 1, current_date + 3, 'workshop', '${'x'.repeat(400)}', '${W}') returning id`)).rows[0].id;
+  const m1 = (await db.query(`insert into ops.meeting (title, organizer_id, starts_at, ends_at, location, description)
+    values ('ZZ Mail meeting', '${W}', now() + interval '2 days', now() + interval '2 days 1 hour', 'Room 4', 'Agenda') returning id`)).rows[0].id;
+  await db.exec(`insert into ops.meeting_attendee (meeting_id, staff_id) values ('${m1}', '${S}'), ('${m1}', '${T2}') on conflict do nothing`);
+  const rq = (await db.query(`insert into ops.hr_request (staff_id, kind, subject) values ('${S}', 'other', 'ZZ Mail request') returning id`)).rows[0].id;
+  await db.exec(`delete from ops.email_outbox`);
+  await db.exec(`insert into ops.notification (recipient_id, actor_id, kind, message, task_id) values ('${S}', '${W}', 'assigned', 'task msg', '${t1}');
+                 insert into ops.notification (recipient_id, actor_id, kind, message, meeting_id) values ('${S}', '${W}', 'meeting_invite', 'meeting msg', '${m1}');
+                 insert into ops.notification (recipient_id, actor_id, kind, message, request_id) values ('${S}', '${W}', 'request_hr_reply', 'request msg', '${rq}');`);
+  await db.exec(`insert into ops.email_outbox (recipient_id, to_email, kind, lane, subject, body) values ('${S}', 'x@y.in', 'test', 'direct', 's', 'b')`);
+  const detail = async (msg) => (await db.query(`select d.details from ops.email_outbox o join ops.email_details(array[o.id]) d on d.id = o.id where o.body = '${msg}'`)).rows[0]?.details;
+  const td = await detail('task msg');
+  td?.type === 'task' && td.title === 'ZZ Mail task' && td.priority === 1 && td.department === 'workshop' && td.by === (await val(`select full_name from ops.staff where id = '${W}'`)) && td.assigned_by === td.by
+    ? ok('a task mail carries the task details') : bad('a task mail carries the task details', JSON.stringify(td));
+  td?.description?.length === 280 ? ok('...the description is cut to 280 characters') : bad('...the description is cut to 280 characters', String(td?.description?.length));
+  const md = await detail('meeting msg');
+  md?.type === 'meeting' && md.location === 'Room 4' && md.attendee_count === 3 && md.attendees.length === 3 && md.organizer_email && md.starts_at && md.ends_at && md.meeting_id === m1
+    ? ok('a meeting mail carries time, place, organizer and who is invited') : bad('a meeting mail carries time, place, organizer and who is invited', JSON.stringify(md));
+  const rd = await detail('request msg');
+  rd?.type === 'request' && rd.subject === 'ZZ Mail request' && rd.state === 'open' && rd.kind === 'other'
+    ? ok('a request mail carries the request') : bad('a request mail carries the request', JSON.stringify(rd));
+  const nd = (await db.query(`select d.details from ops.email_outbox o join ops.email_details(array[o.id]) d on d.id = o.id where o.kind = 'test'`)).rows[0];
+  nd && nd.details === null ? ok('a mail with no record behind it has no details') : bad('a mail with no record behind it has no details', JSON.stringify(nd));
+  await expectVal('an unknown id returns nothing', `select count(*) from ops.email_details(array[-1::bigint])`, 0);
+  await db.exec(`insert into auth.users (id) select ('00000000-0000-4000-8000-0000000007' || lpad(g::text, 2, '0'))::uuid from generate_series(1, 14) g`);
+  await db.exec(`insert into ops.staff (id, email, full_name, role, departments) select ('00000000-0000-4000-8000-0000000007' || lpad(g::text, 2, '0'))::uuid, 'zz' || g || '@x.in', 'ZZ Guest ' || lpad(g::text, 2, '0'), 'member', '{workshop}' from generate_series(1, 14) g`);
+  await db.exec(`insert into ops.meeting_attendee (meeting_id, staff_id) select '${m1}', id from ops.staff where full_name like 'ZZ Guest%'`);
+  const big = await detail('meeting msg');
+  big?.attendees?.length === 12 && big.attendee_count === 17 ? ok('a long guest list is cut to twelve names, with the true count') : bad('a long guest list is cut to twelve names, with the true count', `${big?.attendees?.length}/${big?.attendee_count}`);
+  await db.exec(`delete from ops.meeting_attendee where staff_id in (select id from ops.staff where full_name like 'ZZ Guest%'); delete from ops.staff where full_name like 'ZZ Guest%'; delete from auth.users where id::text like '00000000-0000-4000-8000-0000000007%'`);
+  await expectErr('a person cannot ask for mail details', F, `select * from ops.email_details('{1}')`, 'permission denied');
+  await expectErr('even a member cannot', S, `select * from ops.email_details('{1}')`, 'permission denied');
+  await db.exec(`delete from ops.notification where message in ('task msg', 'meeting msg', 'request msg'); delete from ops.meeting where id = '${m1}'; delete from ops.hr_request where id = '${rq}'; delete from ops.task where id = '${t1}'`);
+
   console.log('Deleting a notification keeps the mail row');
   await reset();
   await notify(S, 'assigned', 'Will be deleted');

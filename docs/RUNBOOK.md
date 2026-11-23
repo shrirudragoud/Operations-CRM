@@ -129,6 +129,14 @@ replies in the shared inbox later). Direct mail is claimed first, is never folde
 90 a day, 30 are reserved for direct mail (`--reserve`), so notices stop at 60 and a busy day of notifications cannot starve a
 customer reply. Resend Pro (50,000 a month) removes the pressure; raise `--daily-cap` and lower `--reserve` then.
 
+Details in the mail (0049): after claiming, the sender calls `ops.email_details(ids)` (service role only) to get the task, meeting or
+HR request behind each message, and shows it under the message: for a task the due date, priority, assignee, assigned by and
+department; for a meeting the time in IST, place (a URL becomes a link), organizer, guests (twelve names, then "and N more") and the
+agenda; for an HR request the subject, type, status and who asked. A digest shows one short line under each item. Meeting invite,
+update and cancel mails carry a `meeting.ics` file (UID `meeting-<id>@hard-code.in`, SEQUENCE from the meeting's `updated_at`), so
+the calendar entry is added, moved or removed. If the details call fails the mail still goes out with the message only (logged as
+`details-failed`). No app rebuild is needed for sender changes.
+
 ## Browser notifications (0047)
 Same topics as email, delivered as a pop-up on the device (Web Push) and a toast inside an open tab. The database queues one
 `ops.push_outbox` row per notification per device (`ops.queue_notification_push`); `scripts/send-push.mjs` (a systemd timer every

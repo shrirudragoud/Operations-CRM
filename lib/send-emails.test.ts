@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buttonLabel, compose, resendSender, sendEmails, topicOf } from "../scripts/send-emails.mjs";
+import { buttonLabel, compose, detailRows, meetingIcs, resendSender, sendEmails, sublineOf, topicOf, whenText } from "../scripts/send-emails.mjs";
 
-type Row = { id: number; recipient_id: string; to_email: string; full_name: string; kind: string; subject: string; body: string; link: string | null; attempts: number; lane: string };
+type Row = { id: number; recipient_id: string; to_email: string; full_name: string; kind: string; subject: string; body: string; link: string | null; attempts: number; lane: string; details?: unknown };
 const row = (over: Partial<Row>): Row => ({ id: 1, recipient_id: "a", to_email: "a@x.in", full_name: "Asha Rao", kind: "assigned", subject: "S", body: "B", link: "/tasks/1", attempts: 1, lane: "notice", ...over });
 
 function fake(rows: Row[]) {
@@ -10,6 +10,7 @@ function fake(rows: Row[]) {
     schema: () => ({
       rpc: async (name: string, args: Record<string, unknown>) => {
         if (name === "claim_emails") return { data: rows, error: null };
+        if (name === "email_details") return { data: [], error: null };
         finished.push(args);
         return { data: 1, error: null };
       },
@@ -86,6 +87,115 @@ describe("email layout", () => {
   });
 });
 
+const meeting = {
+  type: "meeting", meeting_id: "m-1", title: "Weekly sync", status: "scheduled", kind: "team",
+  starts_at: "2026-11-25T09:00:00+00:00", ends_at: "2026-11-25T10:00:00+00:00", updated_at: "2026-11-23T10:00:00+00:00",
+  location: "Room 4", description: "Agenda: boards", cancel_reason: null, organizer: "Ravi Kumar", organizer_email: "ravi@x.in",
+  attendees: ["Asha Rao", "Ravi Kumar"], attendee_count: 5,
+};
+const task = { type: "task", title: "Order boards", status: "open", priority: 1, due_date: "2026-11-27", due_time: "17:00:00", department: "workshop", assignee: "Asha Rao", assigned_by: "Ravi Kumar", description: "Ten <b>boards</b>" };
+const decode = (b64: string) => Buffer.from(b64, "base64").toString("utf8");
+
+describe("details in the mail", () => {
+  it("formats a meeting time in IST", () => {
+    expect(whenText("2026-11-25T09:00:00Z", "2026-11-25T10:00:00Z")).toBe("Wed, 25 Nov 2026, 2:30 pm to 3:30 pm IST");
+    expect(whenText("2026-11-25T17:30:00Z", "2026-11-25T19:30:00Z")).toContain("Wed, 25 Nov 2026, 11:00 pm to Thu, 26 Nov 2026, 1:00 am IST");
+    expect(whenText("nonsense", null)).toBeNull();
+  });
+  it("lists a meeting's time, place, organizer and guests", () => {
+    const { rows, note } = detailRows(meeting);
+    expect(rows.map((r) => `${r.label}: ${r.value}`)).toEqual([
+      "When: Wed, 25 Nov 2026, 2:30 pm to 3:30 pm IST", "Where: Room 4", "Organizer: Ravi Kumar", "With: Asha Rao, Ravi Kumar and 3 more",
+    ]);
+    expect(note).toBe("Agenda: boards");
+  });
+  it("links a meeting URL and shows why it was cancelled", () => {
+    const r = detailRows({ ...meeting, location: "https://meet.example/abc", status: "cancelled", cancel_reason: "Clash with a school visit" }).rows;
+    expect(r.find((x) => x.label === "Where")?.href).toBe("https://meet.example/abc");
+    expect(r.find((x) => x.label === "Reason")?.value).toBe("Clash with a school visit");
+    expect(detailRows(meeting).rows.find((x) => x.label === "Where")?.href).toBeUndefined();
+  });
+  it("lists a task's due date, priority, people and department", () => {
+    expect(detailRows(task).rows.map((r) => `${r.label}: ${r.value}`)).toEqual([
+      "Due: Fri, 27 Nov 2026, 5:00 pm", "Priority: Urgent", "Assignee: Asha Rao", "Assigned by: Ravi Kumar", "Department: Workshop", "Status: Open",
+    ]);
+    expect(detailRows({ ...task, due_date: null, priority: 3, assignee: null }).rows.map((r) => r.label)).toEqual(["Priority", "Assigned by", "Department", "Status"]);
+  });
+  it("lists an HR request", () => {
+    expect(detailRows({ type: "request", kind: "salary_certificate", subject: "Need a letter", state: "in_progress", from: "Asha Rao" }).rows.map((r) => `${r.label}: ${r.value}`)).toEqual([
+      "Request: Need a letter", "Type: Salary certificate", "Status: In progress", "From: Asha Rao",
+    ]);
+  });
+  it("has nothing for a mail with no record behind it", () => {
+    expect(detailRows(null)).toEqual({ rows: [], note: null });
+    expect(detailRows({ type: "other" }).rows).toEqual([]);
+    expect(sublineOf(null)).toBe("");
+  });
+  it("shows the details under a single task or meeting mail, escaped", () => {
+    const m = compose([row({ kind: "meeting_invite", body: "Ravi invited you: Weekly sync", link: "/calendar/m-1", details: meeting })], "https://x.in");
+    expect(m.text).toContain("When: Wed, 25 Nov 2026, 2:30 pm to 3:30 pm IST");
+    expect(m.text).toContain("Where: Room 4");
+    expect(m.html).toContain("Organizer");
+    expect(m.html).toContain("Agenda: boards");
+    const t = compose([row({ body: "Ravi gave you a task: Order boards", details: task })], "https://x.in");
+    expect(t.html).toContain("Urgent");
+    expect(t.html).toContain("Ten &lt;b&gt;boards&lt;/b&gt;");
+    expect(t.html).not.toContain("<b>boards");
+  });
+  it("adds a short line under digest items", () => {
+    const m = compose([row({ id: 1, kind: "meeting_invite", body: "Invited: Weekly sync", details: meeting }), row({ id: 2, body: "A task", details: task })], "https://x.in");
+    expect(m.html).toContain("Wed, 25 Nov 2026, 2:30 pm IST · Room 4");
+    expect(m.text).toContain("Due Fri, 27 Nov 2026, 5:00 pm · Urgent");
+    expect(m.attachments).toEqual([]);
+  });
+  it("still composes when no details were found", () => {
+    const m = compose([row({ body: "Plain message" })], "https://x.in");
+    expect(m.text).toContain("Plain message");
+    expect(m.attachments).toEqual([]);
+  });
+});
+
+describe("calendar file", () => {
+  it("attaches an event to a single meeting invite", () => {
+    const m = compose([row({ kind: "meeting_invite", body: "Invited", link: "/calendar/m-1", details: meeting })], "https://x.in");
+    expect(m.attachments).toHaveLength(1);
+    const a = m.attachments[0]!;
+    expect(a.filename).toBe("meeting.ics");
+    expect(a.contentType).toContain("method=PUBLISH");
+    const ics = decode(a.content);
+    expect(ics).toContain("\r\nUID:meeting-m-1@hard-code.in\r\n");
+    expect(ics).toContain("DTSTART:20261125T090000Z");
+    expect(ics).toContain("DTEND:20261125T100000Z");
+    expect(ics).toContain("SUMMARY:Weekly sync");
+    expect(ics).toContain("LOCATION:Room 4");
+    expect(ics).toContain("ORGANIZER;CN=Ravi Kumar:mailto:ravi@x.in");
+    expect(ics).toContain("URL:https://x.in/calendar/m-1");
+    expect(ics).toContain("STATUS:CONFIRMED");
+    expect(ics.endsWith("END:VCALENDAR\r\n")).toBe(true);
+  });
+  it("cancels the same event with a higher sequence when the meeting changes", () => {
+    const a = decode(meetingIcs("meeting_update", meeting, "")!.content);
+    const later = decode(meetingIcs("meeting_cancel", { ...meeting, status: "cancelled", cancel_reason: "Clash", updated_at: "2026-11-24T10:00:00+00:00" }, "")!.content);
+    const seq = (s: string) => Number(/SEQUENCE:(\d+)/.exec(s)?.[1]);
+    expect(seq(later)).toBeGreaterThan(seq(a));
+    expect(later).toContain("METHOD:CANCEL");
+    expect(later).toContain("STATUS:CANCELLED");
+    expect(later).toContain("UID:meeting-m-1@hard-code.in");
+    expect(later).toContain("Cancelled: Clash");
+  });
+  it("escapes text and folds long lines", () => {
+    const ics = decode(meetingIcs("meeting_invite", { ...meeting, title: "Plan; budget, review", description: "x".repeat(200) }, "")!.content);
+    expect(ics).toContain("SUMMARY:Plan\\; budget\\, review");
+    for (const line of ics.split("\r\n")) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(75);
+  });
+  it("is not attached to reminders, other kinds or a meeting with no times", () => {
+    expect(meetingIcs("meeting_reminder", meeting, "")).toBeNull();
+    expect(meetingIcs("assigned", meeting, "")).toBeNull();
+    expect(meetingIcs("meeting_invite", { ...meeting, starts_at: null }, "")).toBeNull();
+    expect(meetingIcs("meeting_invite", null, "")).toBeNull();
+  });
+});
+
 describe("resendSender", () => {
   const args = { from: "o@x.in", to: "a@x.in", subject: "s", text: "t", html: "h", unsubscribe: "https://x.in/account", idempotencyKey: "k" };
   const reply = (status: number, body: object) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
@@ -101,6 +211,14 @@ describe("resendSender", () => {
   it("retries rate limits and server errors", async () => {
     expect(await resendSender("key", reply(429, {}))(args)).toMatchObject({ permanent: false, fatal: false });
     expect(await resendSender("key", reply(500, {}))(args)).toMatchObject({ permanent: false, fatal: false });
+  });
+  it("sends attachments in the provider's shape", async () => {
+    let body: Record<string, unknown> = {};
+    const spy = (async (_u: string, init: { body: string }) => ((body = JSON.parse(init.body)), new Response(JSON.stringify({ id: "re_2" }), { status: 200 }))) as unknown as typeof fetch;
+    await resendSender("key", spy)({ ...args, attachments: [{ filename: "meeting.ics", content: "QUJD", contentType: "text/calendar" }] } as typeof args);
+    expect(body.attachments).toEqual([{ filename: "meeting.ics", content: "QUJD", content_type: "text/calendar" }]);
+    await resendSender("key", spy)(args);
+    expect(body.attachments).toBeUndefined();
   });
   it("retries when the network fails", async () => {
     const boom = (async () => { throw new Error("down"); }) as unknown as typeof fetch;
@@ -166,6 +284,39 @@ describe("sendEmails", () => {
     expect(s.stoppedEarly).toBe(true);
     expect(f.finished.map((x) => x.p_ids)).toEqual([[1], [2], [3]]);
     expect(f.finished.every((x) => x.p_release === true)).toBe(true);
+  });
+  it("fetches the details for what it claimed and mails them", async () => {
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    const client = {
+      schema: () => ({
+        rpc: async (name: string, a: Record<string, unknown>) => {
+          calls.push({ name, args: a });
+          if (name === "claim_emails") return { data: [row({ id: 7, kind: "meeting_invite", body: "Invited", link: "/calendar/m-1" })], error: null };
+          if (name === "email_details") return { data: [{ id: 7, details: meeting }], error: null };
+          return { data: 1, error: null };
+        },
+      }),
+    };
+    const sent: { text: string; attachments: unknown[] }[] = [];
+    await sendEmails(client, { ...opts, send: async (m: { text: string; attachments: unknown[] }) => (sent.push(m), { ok: true, id: "re_1" }) });
+    expect(calls.find((c) => c.name === "email_details")?.args).toEqual({ p_ids: [7] });
+    expect(sent[0]?.text).toContain("Where: Room 4");
+    expect(sent[0]?.attachments).toHaveLength(1);
+  });
+  it("sends without details when they cannot be fetched", async () => {
+    const logs: { event: string }[] = [];
+    const client = {
+      schema: () => ({
+        rpc: async (name: string) => {
+          if (name === "claim_emails") return { data: [row({ id: 1, body: "Plain" })], error: null };
+          if (name === "email_details") return { data: null, error: { message: "nope" } };
+          return { data: 1, error: null };
+        },
+      }),
+    };
+    const s = await sendEmails(client, { ...opts, log: ((e: { event: string }) => void logs.push(e)) as () => void, send: async () => ({ ok: true, id: "x" }) });
+    expect(s.sent).toBe(1);
+    expect(logs).toContainEqual({ event: "details-failed", error: "nope" });
   });
   it("does nothing when the queue is empty", async () => {
     const f = fake([]);
