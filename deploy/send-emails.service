@@ -1,0 +1,10 @@
+# systemd user unit: sends the notification email queue. Not installed by the repo (see docs/RUNBOOK.md, "Email notifications").
+[Unit]
+Description=Hard-Code Ops: send notification emails
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/Codebase V 4/OPS CRM/Operations-CRM
+# Holds SUPABASE_URL, SUPABASE_SECRET_KEY, RESEND_API_KEY, MAIL_FROM and APP_URL. Keep it chmod 600, outside the repo, never committed.
+EnvironmentFile=%h/.config/hardcode-ops/mail.env
+ExecStart=/usr/bin/env node scripts/send-emails.mjs

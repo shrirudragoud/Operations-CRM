@@ -103,3 +103,21 @@ When: / Who noticed: / What people saw: / Cause: / Fix: / What stops it happenin
 
 ## Restore drill log
 (none yet)
+
+## Email notifications (0045)
+Every in-app notification can also be mailed. The database decides who gets what (`ops.queue_notification_email`, honouring
+`ops.email_pref`) and queues rows in `ops.email_outbox`; `scripts/send-emails.mjs` delivers them through Resend. People choose
+what they get on **Account > Email**; the founder sees the queue counts there.
+
+Set up once:
+1. Resend: add `hard-code.in`, put the SPF/DKIM records it shows into Cloudflare DNS, wait until it says Verified.
+2. Create `~/.config/hardcode-ops/mail.env` (chmod 600, never committed) with `SUPABASE_URL`, `SUPABASE_SECRET_KEY`,
+   `RESEND_API_KEY`, `MAIL_FROM="Hard-Code Ops <notifications@hard-code.in>"`, `APP_URL=https://ops.hard-code.in`.
+3. Apply migration 0045, then install the units: copy `deploy/send-emails.{service,timer}` to `~/.config/systemd/user/`,
+   `systemctl --user daemon-reload && systemctl --user enable --now send-emails.timer`.
+4. On Account, press "Send a test email". Logs: `journalctl --user -u send-emails`.
+
+Limits and behaviour: the free Resend plan allows 100 mails a day, so the script folds a person's pending notifications into one
+mail and stops at 90 mails per rolling 24 hours (`--daily-cap`). Failed mail is retried after 1, 4, 9 and 16 minutes, then marked
+failed. A wrong key or unverified domain stops the run and keeps the mail for five minutes without using up tries. Mail older
+than a day is dropped as stale.

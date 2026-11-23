@@ -271,6 +271,7 @@ await import('./test-task-groups.mjs').then((m) => m.default({ db, run, ok, bad,
 
 await import('./test-hr.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-attendance-all.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
+await import('./test-email.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-leave.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-documents.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));
 await import('./test-hr-requests.mjs').then((m) => m.default({ db, run, ok, bad, msg, expectOk, expectErr, expectVal, val, F, S, W, T2, P, V, O }));

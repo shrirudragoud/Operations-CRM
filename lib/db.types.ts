@@ -973,6 +973,104 @@ export type Database = {
           },
         ]
       }
+      email_outbox: {
+        Row: {
+          id: number
+          notification_id: number | null
+          recipient_id: string
+          to_email: string
+          kind: string
+          subject: string
+          body: string
+          link: string | null
+          status: string
+          attempts: number
+          next_attempt_at: string
+          last_error: string | null
+          provider_id: string | null
+          created_at: string
+          sent_at: string | null
+        }
+        Insert: {
+          id?: number
+          notification_id?: number | null
+          recipient_id: string
+          to_email: string
+          kind: string
+          subject: string
+          body: string
+          link?: string | null
+          status?: string
+          attempts?: number
+          next_attempt_at?: string
+          last_error?: string | null
+          provider_id?: string | null
+          created_at?: string
+          sent_at?: string | null
+        }
+        Update: {
+          id?: number
+          notification_id?: number | null
+          recipient_id?: string
+          to_email?: string
+          kind?: string
+          subject?: string
+          body?: string
+          link?: string | null
+          status?: string
+          attempts?: number
+          next_attempt_at?: string
+          last_error?: string | null
+          provider_id?: string | null
+          created_at?: string
+          sent_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_outbox_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: true
+            referencedRelation: "notification"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_pref: {
+        Row: {
+          staff_id: string
+          enabled: boolean
+          groups: string[]
+          updated_at: string
+        }
+        Insert: {
+          staff_id: string
+          enabled?: boolean
+          groups?: string[]
+          updated_at?: string
+        }
+        Update: {
+          staff_id?: string
+          enabled?: boolean
+          groups?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_pref_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       enrollment: {
         Row: {
           id: string
@@ -4359,6 +4457,10 @@ export type Database = {
         }
         Returns: { staff_id: string; full_name: string; kind: string; day: number; years: number }[]
       }
+      email_health: {
+        Args: never
+        Returns: Json
+      }
       excuse_day: {
         Args: {
           p_staff: string
@@ -4616,6 +4718,10 @@ export type Database = {
         }
         Returns: string
       }
+      queue_test_email: {
+        Args: never
+        Returns: undefined
+      }
       register_task_attachment: {
         Args: {
           p_task: string
@@ -4710,6 +4816,13 @@ export type Database = {
       set_ai_model: {
         Args: {
           p_model: string
+        }
+        Returns: undefined
+      }
+      set_email_pref: {
+        Args: {
+          p_enabled: boolean
+          p_groups: string[]
         }
         Returns: undefined
       }
