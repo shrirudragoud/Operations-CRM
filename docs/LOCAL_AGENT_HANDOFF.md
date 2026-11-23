@@ -22,7 +22,7 @@ npm run lint && npm run typecheck && npm test    # expect clean, 32 unit tests
 If `test:db` fails, stop: the database layer is the foundation and nothing else is trustworthy.
 
 ### 1.3 Run the app against the HOSTED ops project
-The hosted project is `qngzrzymakuqfljdotwi` (Supabase org "Operations Database", Tokyo). Create `.env.local`
+The hosted project is `<your-project-ref>` (Supabase org "Operations Database", Tokyo). Create `.env.local`
 (git-ignored) from `.env.example` with the **URL** and the **publishable key** (Dashboard -> Settings -> API Keys).
 ```bash
 npm run dev           # http://localhost:3000
@@ -43,7 +43,7 @@ Database -> Tables). `public` is empty on purpose.
 
 ### 1.4 Run the browser tests on a LOCAL Supabase stack (never against hosted)
 ```bash
-npx supabase start -x studio,imgproxy,vector,logflare,edge-runtime,realtime,storage-api,postgres-meta,supavisor
+npx supabase start -x studio,imgproxy,vector,logflare,edge-runtime,realtime,postgres-meta,supavisor
 npx playwright install chromium     # first time only
 npx playwright test --trace off     # expect: 9 passed
 ```
@@ -127,7 +127,7 @@ e2e/                        Playwright (local stack only)       scripts/serve.sh
 
 ### Hosted project status (verify, do not assume)
 ```bash
-npx supabase login && npx supabase link --project-ref qngzrzymakuqfljdotwi
+npx supabase login && npx supabase link --project-ref <your-project-ref>
 npx supabase db query --remote --read-only "select count(*) from pg_tables where schemaname='ops'"   # 36
 npx supabase db advisors --remote --level warn
 ```

@@ -272,9 +272,9 @@ await expectOk('the lead excuses a future day', W, `select ops.excuse_day('${T2}
   await expectErr('only the founder can trust a network', W, `select ops.trust_this_network('ZZ Home')`, 'founder');
   await expectErr('a name is needed', F, `select ops.trust_this_network(' ')`, 'name');
   {
-    const r = (await expectOk('the founder trusts the network they are on', F, `select ops.trust_this_network('ZZ Hex Labs') as r`))?.rows[0]?.r;
+    const r = (await expectOk('the founder trusts the network they are on', F, `select ops.trust_this_network('ZZ Office') as r`))?.rows[0]?.r;
     r?.created === true ? ok('...a network was added') : bad('...a network was added', JSON.stringify(r));
-    const r2 = (await expectOk('doing it again', F, `select ops.trust_this_network('ZZ Hex Labs') as r`))?.rows[0]?.r;
+    const r2 = (await expectOk('doing it again', F, `select ops.trust_this_network('ZZ Office') as r`))?.rows[0]?.r;
     r2?.created === false ? ok('...adds nothing, only confirms') : bad('...adds nothing', JSON.stringify(r2));
   }
   await expectVal('the address is stored as a single host', `select cidr = '203.0.113.50/32' and last_seen_at is not null from ops.office_network`, true);

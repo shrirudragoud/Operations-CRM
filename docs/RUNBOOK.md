@@ -1,7 +1,7 @@
 # Runbook
 
-Short procedures for when something goes wrong. The hosted project is `qngzrzymakuqfljdotwi`; the app is the
-Docker container `hardcode-ops-app` behind the Cloudflare tunnel. Never touch `rjxchzcmxsjxhdfaasxx` (the IDE product DB).
+Short procedures for when something goes wrong. The hosted project is `<your-project-ref>`; the app is the
+Docker container `hardcode-ops-app` behind the Cloudflare tunnel. Never touch `<other-project-ref>` (the IDE product DB).
 
 ## Is it up?
 - `GET https://ops.hard-code.in/api/health`: 200 `{"status":"ok","db":true}` is healthy; 503 means the app is up but cannot reach the database (it asks Postgres for an ops table as anon and expects the 42501 refusal).
@@ -51,6 +51,51 @@ The person must already have signed in once so a staff row exists.
 ## Stock does not match the shelf
 Stock is a ledger. Never edit counts. Count the shelf, then record the difference as an `adjustment` movement
 with a note (Inventory, the item, Adjust). `ops.v_stock` is then correct again.
+
+## Task files: clean-up and virus scanning
+**Clean-up** (`scripts/purge-task-files.mjs`, migration 0041). Removing a file only hides it for 30 days (Undo works until then).
+The job makes removals final, deletes their objects from the `task-files` bucket, and deletes objects that were uploaded but never
+registered (older than 24 h, so an upload in flight is never touched). Before every delete it asks the database
+(`ops.task_files_deletable`) and keeps anything a file row still points at.
+- Try it without changing anything: `SUPABASE_URL=... SUPABASE_SECRET_KEY=... node scripts/purge-task-files.mjs --dry-run`
+  (prints `would-delete` lines and a summary). Flags: `--days 30`, `--stray-hours 24`, `--max 1000` (work per run).
+- Output is one JSON line per action plus a `summary`; exit code 1 if a Storage delete batch failed (the next run retries it).
+- Schedule: `deploy/purge-task-files.service` and `.timer` are systemd user-unit examples (nightly 02:30). Install by copying to
+  `~/.config/systemd/user/`, put the two variables in `~/.config/hardcode-ops/purge.env` (chmod 600), then
+  `systemctl --user enable --now purge-task-files.timer`. The secret key lives only in that file.
+- Is it working? `systemctl --user list-timers purge-task-files.timer`, `journalctl --user -u purge-task-files -n 50`. The founder can
+  also see waiting paths: `select count(*) from ops.task_file_orphan;` (it should drop to 0 after a run).
+
+**Virus scanning** (`lib/clamav.ts`). Off unless `TASK_FILE_SCAN=required` is set for the app. When on, every upload is streamed to
+ClamAV before it is registered; a flagged file is deleted and refused, and if the scanner cannot be reached the upload fails with a
+"try again" message (fail closed) and the object is removed.
+- Start the scanner: `docker compose -p operations-crm --env-file .env.local --profile scan up -d clamav`. The first start downloads
+  signatures (a few minutes); `docker inspect -f '{{.State.Health.Status}}' hardcode-ops-clamav` says `healthy` when ready.
+- Then set `TASK_FILE_SCAN=required` in `.env.local` and redeploy the app (`up -d app`). Do it in that order, or uploads will fail.
+- Switch off in an emergency: unset `TASK_FILE_SCAN` and `up -d app`. Uploads still pass the type, size and magic-byte checks.
+- Test it: upload the EICAR test string saved as `eicar.txt` (a harmless standard test file); it should be refused.
+
+## The assistant (Gemini, bring your own key)
+- Needs `AI_KEY_SECRET` in `.env.local` on the app host (generate: `openssl rand -base64 32`; never paste it in chat or commit it). Unset = the assistant says it is not switched on. `docker-compose.yml` passes it to the app; redeploy with `up -d app` after setting it.
+- Back the secret up with the other host secrets. If it is lost or changed, every saved key becomes unreadable: people see "Your saved Gemini key could not be read. Add it again." and just paste their key again. Nothing else is affected.
+- Keys are never logged and never leave the server except in the `x-goog-api-key` header to Google. A person removes their key under Assistant > Gemini key and model. Deactivating a person removes their access; delete their key row if you want it gone: `delete from ops.ai_key where staff_id = '...'`.
+- A person gets "quota" or "rate" errors from their own Google account; nothing to fix here. Chat problems: `select status, count(*) from ops.ai_action group by 1` shows draft states; stuck `running` rows clear themselves after 5 minutes.
+- Free Google keys allow about 20 requests per day per model, and one chat message costs 2 to 3 requests (about 7 messages a day). People then see "run out of quota"; switching model in the assistant settings gives a fresh allowance. Prefer a key on a paid plan for real use. Default model is the first available of `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-flash` (`PREFERRED_MODELS` in `lib/ai/gemini.ts`), picked when the key is saved; a saved key keeps its model until the person picks another in the settings. Gemini 3+ models are sent `thinkingLevel: low` (the default level made `gemini-3.5-flash` hang over a minute); 2.x models do not accept it. `gemini-3.8-flash` returned 503 "high demand".
+- Tool schemas sent to Gemini may only use string enum values (a numeric enum made every chat fail); `lib/ai/tools.test.ts` guards this. `GEMINI_API_BASE` passed as an empty string by compose must fall back to Google (guarded in `gemini.test.ts`). Gemini failures are logged as `[gemini] ...` in `docker logs hardcode-ops-app` (never the key).
+- Tests use a stub Gemini server (`e2e/gemini-stub.ts`); `GEMINI_API_BASE` exists only for that.
+- **Ops assistant (migration 0043).** Tools are split by area in `lib/ai/areas/` (tasks, calendar, workshop, sales with institutions/deals/outreach, leave, inventory, insights) and `lib/ai/registry.ts` decides who is offered what. To add a tool: declare it in its area file, add its gate to the area's `writes` map if it drafts a change, handle it in the area's `run`, and for a draft add the kind to `lib/ai/drafts.ts`, the `ai_action.kind` check (new migration), `runDraft` in `lib/actions/assistant.ts` and the labels in `components/assistant/draft-card.tsx`. Tool schemas must keep string enums only. A founder is offered about 40 tools; if Gemini starts choosing the wrong tool, narrow the list per role before touching prompts.
+- Chat problem reports: "the assistant says it can't do that" is usually the person's role (the tool is not offered), not a fault. A draft that fails on Confirm shows the same message the form would; fix it in the app, not the assistant.
+- Rollback: `docker tag hardcode-ops:pre-opsassistant hardcode-ops:latest` then `docker compose -p operations-crm --env-file .env.local up -d app`. Migration 0043 only widens a check constraint, so it can stay applied.
+
+## Voice mode (Gemini Live)
+- A mic button next to Send starts a spoken chat on the same saved key. Needs HTTPS (or localhost) and the browser's microphone permission; the site's `Permissions-Policy` allows the mic for itself only (`microphone=(self)` in `next.config.ts`). Browsers without `getUserMedia` / AudioWorklet do not show the button.
+- Flow: the server action `startVoiceSession` decrypts the person's key, picks a Live model (`LIVE_MODEL_PREFERENCE` in `lib/ai/live.ts`, else any model with `bidiGenerateContent`), mints a one-use token (`/v1beta/auth_tokens`, 30 min session, 2 min to connect) and returns the socket URL plus the setup. The browser opens the Google socket directly (CSP `connect-src` allows `wss://generativelanguage.googleapis.com`); the key never reaches the browser. Tool calls come back through `runVoiceTool`, which runs under the person's own session, so voice sees exactly what the person sees.
+- Writes are still drafts. The model also has a voice-only `confirm_drafts` tool, and the browser runs it only if the person's latest spoken words (after the draft) are a plain "yes / create / go ahead" (`isSpokenConfirm`), and only for the newest batch of drafts. Tapping Create on the card always works too.
+- What is said is saved as ordinary chat messages (`saveVoiceTurn`) so it shows in the chat list; typed "create" later still confirms a spoken draft. Voice turns count toward the 60 messages per hour / 400 per day guard.
+- On the call screen: the conversation shows what was said as bubbles with the task cards under the assistant's reply, a two-note chime plays when the call goes live (no chime = the browser's sound is off or blocked; a "Tap to turn the sound on" button appears if the browser suspended audio), and the round button swells with the voice. **The microphone is closed while the assistant speaks** (and for 0.45 s after) because on speakers it hears itself and cuts itself off; tap the circle to interrupt it, or switch on "Talk over it (use headphones)" (remembered in the browser) to talk over it. If someone reports "it only writes, no voice": check device volume and output, the chime, and whether the circle moves while it speaks.
+- The call ends after 3 idle minutes, on leaving the page, or when Google closes it; short drops reconnect up to 3 times with the session handle. The mic worklet is served from `/api/voice-worklet` (the image has no `public/` and CSP forbids blob scripts).
+- Free keys have small Live allowances; "Your Gemini key hit its voice limit" means wait or use a paid key. Live models on a key: `GET /v1beta/models` and look for `bidiGenerateContent`.
+- Tests: `lib/ai/live.test.ts`, `e2e/voice.spec.ts` (the Live socket is scripted with `page.routeWebSocket`, Chromium fake mic; it also checks the speech reaches the audio graph and the mic gating). Not covered by any test: real sound, echo on speakers, phone browsers. Rollback image `hardcode-ops:pre-voice`.
 
 ## Incident template
 When: / Who noticed: / What people saw: / Cause: / Fix: / What stops it happening again:

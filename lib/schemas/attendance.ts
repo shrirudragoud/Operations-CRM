@@ -60,7 +60,7 @@ export const idSchema = z.object({ id: z.uuid() });
 
 export const networkSchema = z.object({
   label: z.string().trim().min(1, "Give it a name.").max(80),
-  cidr: z.string().trim().regex(/^[0-9a-fA-F:.]+(\/\d{1,3})?$/, "Enter an address like 103.8.166.106 or 103.8.166.0/24."),
+  cidr: z.string().trim().regex(/^[0-9a-fA-F:.]+(\/\d{1,3})?$/, "Enter an address like 203.0.113.10 or 203.0.113.0/24."),
 });
 export type NetworkInput = z.input<typeof networkSchema>;
 export const networkActiveSchema = z.object({ id: z.uuid(), is_active: z.boolean() });

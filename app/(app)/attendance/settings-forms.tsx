@@ -247,7 +247,7 @@ export function NetworksPanel({ networks }: { networks: NetworkRow[] }) {
         </Field>
         <Field className="w-64" data-invalid={!!errors.cidr}>
           <FieldLabel htmlFor="net-cidr" className="sr-only">Address or range</FieldLabel>
-          <Input id="net-cidr" placeholder="103.8.166.106 or 103.8.166.0/24" autoComplete="off" aria-invalid={!!errors.cidr} {...form.register("cidr")} />
+          <Input id="net-cidr" placeholder="203.0.113.10 or 203.0.113.0/24" autoComplete="off" aria-invalid={!!errors.cidr} {...form.register("cidr")} />
           <FieldError errors={[errors.cidr]} />
         </Field>
         <Button type="submit" variant="outline" disabled={isSubmitting}>{isSubmitting && <Spinner />} Add by hand</Button>

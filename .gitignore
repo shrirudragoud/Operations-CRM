@@ -28,3 +28,8 @@ playwright-report/
 npm-debug.log*
 .run/
 .next-e2e/
+
+# local agent/IDE state
+.claude/settings.local.json
+.claude/skills/
+.agents/
