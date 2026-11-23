@@ -6,6 +6,8 @@ import { confirmAiAction } from "@/lib/actions/assistant";
 import { createVoiceChat, runVoiceTool, saveVoiceTurn, startVoiceSession, type VoiceStart } from "@/lib/actions/voice";
 import { audioMessage, closeMessage, int16ToBase64, isSpokenConfirm, parseLiveMessage, toolResponseMessage, TurnBuffer, type LiveCall, type LiveEvent } from "@/lib/ai/live";
 import { CONFIRM_DRAFTS_TOOL } from "@/lib/ai/prompt";
+import { getVoicePrefs, useVoicePrefs } from "@/components/assistant/voice-prefs-store";
+import type { VoicePrefs } from "@/lib/ai/voice-prefs";
 import type { DraftCard } from "@/lib/ai/types";
 
 export type VoiceState = "off" | "connecting" | "listening" | "thinking" | "speaking";
@@ -80,6 +82,7 @@ export function useVoice(options: Options) {
     reconnecting: false,
     reconnects: 0,
     model: null as string | null,
+    prefs: null as VoicePrefs | null,
     handle: null as string | null,
     chat: null as Promise<string> | null,
     buffer: new TurnBuffer(),
@@ -411,7 +414,7 @@ export function useVoice(options: Options) {
     r.reconnects++;
     setState("connecting");
     r.player?.clear();
-    const res = await startVoiceSession({ model: r.model ?? undefined, resume_handle: r.handle ?? undefined, task_id: opts.current.taskId ?? undefined });
+    const res = await startVoiceSession({ model: r.model ?? undefined, prefs: r.prefs ?? undefined, resume_handle: r.handle ?? undefined, task_id: opts.current.taskId ?? undefined });
     r.reconnecting = false;
     if (r.closing) return;
     if (!res.ok) return stop(res.error);
@@ -440,6 +443,7 @@ export function useVoice(options: Options) {
     r.reconnects = 0;
     r.handle = null;
     r.model = null;
+    r.prefs = getVoicePrefs();
     r.chat = null;
     r.draftsMade = 0;
     r.confirmFloor = 0;
@@ -457,7 +461,7 @@ export function useVoice(options: Options) {
     ctx.onstatechange = () => setSoundBlocked(ctx.state === "suspended" || (ctx.state as string) === "interrupted");
     let stream: MediaStream | null = null;
     try {
-      const [mic, started] = await Promise.all([requestMic().then((s) => (stream = s)), startVoiceSession({ task_id: opts.current.taskId ?? undefined })]);
+      const [mic, started] = await Promise.all([requestMic().then((s) => (stream = s)), startVoiceSession({ prefs: r.prefs ?? undefined, task_id: opts.current.taskId ?? undefined })]);
       if (!started.ok) throw new Error(started.error);
       if (r.ctx !== ctx) {
         mic.getTracks().forEach((t) => t.stop());
@@ -470,6 +474,7 @@ export function useVoice(options: Options) {
           if (r.ready && r.toolsInFlight === 0 && stateRef.current === "speaking") setState("listening");
         }
       });
+      r.player.setVolume(getVoicePrefs().volume);
       r.mic = await MicCapture.start(
         ctx,
         mic,
@@ -553,6 +558,12 @@ export function useVoice(options: Options) {
     document.addEventListener("visibilitychange", again);
     return () => document.removeEventListener("visibilitychange", again);
   }, []);
+
+  // Volume is the one setting that can change in the middle of a call; the rest are read when a call starts.
+  const volume = useVoicePrefs().volume;
+  useEffect(() => {
+    run.current.player?.setVolume(volume);
+  }, [volume]);
 
   useEffect(() => () => stop(), [stop]);
 

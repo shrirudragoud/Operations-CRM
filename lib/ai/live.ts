@@ -1,6 +1,8 @@
 // Pure helpers for the Gemini Live voice session. Nothing here touches the network or the browser, so it is shared by the
 // server (which builds the setup message) and the client (which parses what Gemini sends back) and is unit tested.
 
+import { pickVoice } from "@/lib/ai/voice-prefs";
+
 export type LiveTool = { name: string; description: string; parameters?: Record<string, unknown> };
 
 export const INPUT_RATE = 16_000;
@@ -16,18 +18,17 @@ export function pickLiveModel(ids: string[]): string | null {
   return ids.find((id) => /^gemini-.*(live|native-audio)/.test(id) && !/transcribe|translate|extended/.test(id)) ?? null;
 }
 
-export const VOICE_NAME = "Puck";
-
 /** The first message on the socket. Everything the session needs is fixed here, on the server's terms. */
-export function buildSetup(input: { model: string; system: string; tools: LiveTool[]; resumeHandle?: string | null; voice?: string }) {
+export function buildSetup(input: { model: string; system: string; tools: LiveTool[]; resumeHandle?: string | null; voice?: string | null; activity?: Record<string, unknown> | null }) {
   return {
     setup: {
       model: `models/${input.model}`,
       generationConfig: {
         responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: input.voice ?? VOICE_NAME } } },
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: pickVoice(input.voice) } } },
       },
       systemInstruction: { parts: [{ text: input.system }] },
+      ...(input.activity ? { realtimeInputConfig: { automaticActivityDetection: input.activity } } : {}),
       tools: [{ functionDeclarations: input.tools }],
       inputAudioTranscription: {},
       outputAudioTranscription: {},

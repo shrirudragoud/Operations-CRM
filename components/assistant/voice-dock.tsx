@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { AudioLinesIcon, MicIcon, MicOffIcon, PhoneOffIcon, Volume2Icon } from "lucide-react";
 import type { VoiceState } from "@/components/assistant/use-voice";
+import { VoiceSettings } from "@/components/assistant/voice-settings";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -119,10 +120,13 @@ export function VoiceDock({ state, muted, started, soundBlocked, bargeIn, getLev
           </Button>
         )}
 
-        <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs">
-          <Switch size="sm" checked={bargeIn} onCheckedChange={onBargeIn} aria-label="Talk over the assistant" />
-          Talk over it (use headphones)
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs">
+            <Switch size="sm" checked={bargeIn} onCheckedChange={onBargeIn} aria-label="Talk over the assistant" />
+            Talk over it (use headphones)
+          </label>
+          <VoiceSettings inCall />
+        </div>
       </div>
     </div>
   );

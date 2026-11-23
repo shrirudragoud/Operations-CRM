@@ -7,6 +7,7 @@ import { DraftCardView } from "@/components/assistant/draft-card";
 import { MessageText } from "@/components/assistant/message-text";
 import { useVoice } from "@/components/assistant/use-voice";
 import { VoiceDock } from "@/components/assistant/voice-dock";
+import { VoiceSettings } from "@/components/assistant/voice-settings";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -123,9 +124,12 @@ export function Chat({
             </EmptyHeader>
             <EmptyContent className="max-w-full">
               {voiceEnabled && voice.supported && (
-                <Button type="button" size="lg" className="h-11 w-full rounded-full" onClick={() => void voice.start()}>
-                  <MicIcon aria-hidden /> Talk to the assistant
-                </Button>
+                <div className="flex w-full items-center gap-2">
+                  <Button type="button" size="lg" className="h-11 flex-1 rounded-full" onClick={() => void voice.start()}>
+                    <MicIcon aria-hidden /> Talk to the assistant
+                  </Button>
+                  <VoiceSettings />
+                </div>
               )}
               <div className="flex w-full flex-col gap-2">
                 {suggestions.map((s) => (
@@ -239,6 +243,7 @@ export function Chat({
             <InputGroupAddon align="block-end" className="justify-between">
               <span className="text-muted-foreground hidden text-xs [@media(pointer:fine)]:inline">Enter to send, Shift+Enter for a new line</span>
               <div className="ml-auto flex items-center gap-2">
+                {voiceEnabled && voice.supported && <VoiceSettings />}
                 {voiceEnabled && voice.supported && (
                   <InputGroupButton type="button" variant="secondary" size="sm" className="rounded-full px-3" disabled={asking !== null} onClick={() => void voice.start()}>
                     <MicIcon aria-hidden /> Talk

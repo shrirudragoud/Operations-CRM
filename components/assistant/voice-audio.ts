@@ -85,6 +85,11 @@ export class VoicePlayer {
     this.gain.connect(this.analyser).connect(ctx.destination);
   }
 
+  /** 1 is the voice as Google sends it; the person's volume setting scales it. */
+  setVolume(v: number) {
+    this.gain.gain.value = v;
+  }
+
   /** True while speech is queued and the speakers are actually running (a suspended context never finishes anything). */
   get speaking() {
     return this.sources.size > 0 && this.ctx.state === "running";

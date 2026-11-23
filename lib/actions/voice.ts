@@ -7,6 +7,7 @@ import { buildToolEnv } from "@/lib/ai/env";
 import { buildSetup, pickLiveModel, type LiveTool } from "@/lib/ai/live";
 import { liveSocketUrl, listLiveModels, mintLiveToken } from "@/lib/ai/live-server";
 import { CONFIRM_DRAFTS_TOOL, voicePrompt } from "@/lib/ai/prompt";
+import { activityDetection, DEFAULT_PREFS, voicePrefsSchema, voiceStylePrompt } from "@/lib/ai/voice-prefs";
 import { ACTION_COLS, caller, cardOf, problem, storedKey } from "@/lib/ai/shared";
 import { runTool, toolsFor } from "@/lib/ai/registry";
 import { MAX_DRAFTS_PER_MESSAGE } from "@/lib/ai/tools";
@@ -31,6 +32,7 @@ const CONFIRM_TOOL: LiveTool = {
 const startSchema = z.object({
   model: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).optional(),
   resume_handle: z.string().min(1).max(500).optional(),
+  prefs: voicePrefsSchema.optional(),
   task_id: z.uuid().optional(),
 });
 const toolSchema = z.object({
@@ -60,6 +62,7 @@ export async function startVoiceSession(input: unknown): Promise<ActionResult<Vo
   const key = await storedKey(supabase, c.me.id);
   if ("error" in key) return { ok: false, error: key.error };
 
+  const prefs = parsed.data.prefs ?? DEFAULT_PREFS;
   try {
     const model = parsed.data.model ?? pickLiveModel(await listLiveModels(key.apiKey));
     if (!model) return { ok: false, error: "Your Gemini key has no voice model. Voice needs a Gemini Live model; check your plan in Google AI Studio." };
@@ -75,7 +78,14 @@ export async function startVoiceSession(input: unknown): Promise<ActionResult<Vo
       data: {
         wsUrl: liveSocketUrl(token),
         model,
-        setup: buildSetup({ model, system: voicePrompt({ me: c.me, today: todayIST(), current }), tools: [...toolsFor(c.me), CONFIRM_TOOL], resumeHandle: parsed.data.resume_handle }),
+        setup: buildSetup({
+          model,
+          system: voicePrompt({ me: c.me, today: todayIST(), current }) + voiceStylePrompt(prefs),
+          tools: [...toolsFor(c.me), CONFIRM_TOOL],
+          resumeHandle: parsed.data.resume_handle,
+          voice: prefs.voice,
+          activity: activityDetection(prefs),
+        }),
       },
     };
   } catch (e) {
