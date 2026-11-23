@@ -4580,6 +4580,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      default_email_groups: {
+        Args: never
+        Returns: string[]
+      }
+      default_push_groups: {
+        Args: never
+        Returns: string[]
+      }
       delete_ai_key: {
         Args: never
         Returns: undefined

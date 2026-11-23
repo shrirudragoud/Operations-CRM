@@ -22,14 +22,16 @@ export default async function emailTests(t) {
   await expectVal('...and the message as subject', `select subject from ops.email_outbox where recipient_id = '${S}'`, 'Ravi assigned you: Order boards');
   await expectVal('...linked to the notification', `select count(*) from ops.email_outbox where notification_id is not null and recipient_id = '${S}'`, 1);
 
-  console.log('Defaults: on, but not for chatty task activity');
+  console.log('Defaults (0048): everything except due today and overdue');
   await notify(S, 'comment', 'Someone commented');
-  await expectVal('a comment is not mailed by default', `select count(*) from ops.email_outbox where recipient_id = '${S}'`, 1);
-  await notify(S, 'mentioned', 'You were mentioned');
+  await expectVal('a comment is mailed by default', `select count(*) from ops.email_outbox where recipient_id = '${S}'`, 2);
   await notify(S, 'due_today', 'Due today: Order boards');
+  await expectVal('due today is not mailed by default (the dashboard shows it)', `select count(*) from ops.email_outbox where recipient_id = '${S}'`, 2);
+  await notify(S, 'mentioned', 'You were mentioned');
   await notify(S, 'meeting_invite', 'Invited: Weekly');
   await notify(S, 'hr_file', 'HR sent you a file');
-  await expectVal('mentions, due, meetings and HR are mailed', `select count(*) from ops.email_outbox where recipient_id = '${S}'`, 5);
+  await expectVal('mentions, meetings and HR are mailed', `select count(*) from ops.email_outbox where recipient_id = '${S}'`, 5);
+  await expectVal('the default list is what the database says', `select array_to_string(ops.default_email_groups(), ',')`, 'assigned,mentions,meetings,hr,activity');
   await expectVal('a link is built for a task', `select count(*) from ops.email_outbox where link is not null`, 1);
 
   console.log('A person chooses');

@@ -11,7 +11,10 @@ export const EMAIL_GROUPS = [
 ] as const;
 
 export type EmailGroupId = (typeof EMAIL_GROUPS)[number]["id"];
-export const DEFAULT_EMAIL_GROUPS: EmailGroupId[] = ["assigned", "mentions", "due", "meetings", "hr"];
+// Mirrors ops.default_email_groups() and ops.default_push_groups(). Email leaves out "due": the Ops dashboard already shows it
+// and the reminder repeats daily. Browser notifications get every topic.
+export const DEFAULT_EMAIL_GROUPS: EmailGroupId[] = ["assigned", "mentions", "meetings", "hr", "activity"];
+export const DEFAULT_PUSH_GROUPS: EmailGroupId[] = ["assigned", "mentions", "due", "meetings", "hr", "activity"];
 
 export const emailPrefsSchema = z.object({
   enabled: z.boolean(),

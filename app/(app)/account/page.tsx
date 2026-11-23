@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireMe } from "@/lib/auth";
 import { DEPARTMENT_LABELS, ROLE_LABELS } from "@/lib/permissions";
 import { vapidPublicKey } from "@/lib/push-config";
-import { DEFAULT_EMAIL_GROUPS, EMAIL_GROUPS, type EmailGroupId } from "@/lib/schemas/email";
+import { DEFAULT_EMAIL_GROUPS, DEFAULT_PUSH_GROUPS, EMAIL_GROUPS, type EmailGroupId } from "@/lib/schemas/email";
 import type { PushGroupId } from "@/lib/schemas/push";
 import { createClient } from "@/utils/supabase/server";
 import { BrowserForm } from "./browser-form";
@@ -33,7 +33,7 @@ export default async function AccountPage() {
     supabase.from("push_subscription").select("endpoint").eq("staff_id", me.id),
     vapidKey && me.role === "founder" ? supabase.rpc("push_health") : Promise.resolve({ data: null }),
   ]);
-  const pushGroups = (pushPref?.groups ?? DEFAULT_EMAIL_GROUPS).filter((g): g is PushGroupId => known.has(g));
+  const pushGroups = (pushPref?.groups ?? DEFAULT_PUSH_GROUPS).filter((g): g is PushGroupId => known.has(g));
   const ph = pushHealth && typeof pushHealth === "object" && !Array.isArray(pushHealth) ? (pushHealth as Record<string, unknown>) : null;
   const pushStuckSeconds = ph && typeof ph.oldest_queued_seconds === "number" ? ph.oldest_queued_seconds : 0;
   const pushFailed = ph && typeof ph.failed === "number" ? ph.failed : 0;

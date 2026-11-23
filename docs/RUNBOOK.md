@@ -122,6 +122,8 @@ mail and stops at 90 mails per rolling 24 hours (`--daily-cap`). Failed mail is 
 failed. A wrong key or unverified domain stops the run and keeps the mail for five minutes without using up tries. Automatic mail
 older than a day is dropped as stale.
 
+Defaults (0048), for anyone who never saved a choice: email covers every topic except "due today and overdue" (the Ops dashboard already shows it and the reminder repeats daily); browser notifications cover every topic. Saved choices are never overwritten. The lists live in `ops.default_email_groups()` / `ops.default_push_groups()` and are mirrored in `lib/schemas/email.ts`.
+
 Two lanes (0046): `notice` is automatic mail from notifications; `direct` is mail a person is waiting for (the test mail now, customer
 replies in the shared inbox later). Direct mail is claimed first, is never folded into a digest, and stays valid for 3 days. Of the
 90 a day, 30 are reserved for direct mail (`--reserve`), so notices stop at 60 and a busy day of notifications cannot starve a

@@ -54,29 +54,30 @@ export default async function pushTests(t) {
   await notify(T2, 'mentioned', 'You were mentioned');
   await expectVal('a person with one device gets one row', rows(T2), 1);
 
-  console.log('Defaults: on, but not for chatty task activity');
+  console.log('Defaults (0048): every topic');
   await notify(S, 'comment', 'Someone commented');
-  await expectVal('a comment is not pushed by default', await rows(S), 2);
+  await expectVal('a comment is pushed by default', await rows(S), 4);
   await notify(S, 'due_today', 'Due today'); await notify(S, 'meeting_invite', 'Invited'); await notify(S, 'hr_file', 'HR sent a file');
-  await expectVal('due, meetings and HR are pushed', await rows(S), 8);
+  await expectVal('due, meetings and HR are pushed', await rows(S), 10);
   await notify(S, 'status', 'Status changed');
-  await expectVal('a kind outside the defaults stays quiet', await rows(S), 8);
+  await expectVal('a status change is pushed', await rows(S), 12);
+  await expectVal('the default list is what the database says', `select array_to_string(ops.default_push_groups(), ',')`, 'assigned,mentions,due,meetings,hr,activity');
   await expectVal('a kind with no group is never pushed', `select ops.email_group('nonsense') is null`, true);
 
   console.log('A person chooses');
   await expectOk('turns on task activity, turns off mentions', S, `select ops.set_push_groups('{assigned,activity}')`);
   await notify(S, 'comment', 'Another comment');
-  await expectVal('...a comment is now pushed', await rows(S), 10);
+  await expectVal('...a comment is now pushed', await rows(S), 14);
   await notify(S, 'mentioned', 'Mentioned again');
-  await expectVal('...a mention is not', await rows(S), 10);
+  await expectVal('...a mention is not', await rows(S), 14);
   await expectOk('turns everything off', S, `select ops.set_push_groups('{}')`);
   await notify(S, 'assigned', 'Assigned while off');
-  await expectVal('...nothing is queued', await rows(S), 10);
+  await expectVal('...nothing is queued', await rows(S), 14);
   await expectErr('an unknown choice is refused', S, `select ops.set_push_groups('{spam}')`, 'Unknown notification choice');
   await expectVal('choices are stored', `select array_to_string(groups, ',') from ops.push_pref where staff_id = '${S}'`, '');
   await expectRows('can read their own choices', S, `select staff_id from ops.push_pref`, 1);
   await expectRows('another person cannot', T2, `select staff_id from ops.push_pref`, 0);
-  await expectOk('turns the defaults back on', S, `select ops.set_push_groups('{assigned,mentions,due,meetings,hr}')`);
+  await expectOk('turns the defaults back on', S, `select ops.set_push_groups('{assigned,mentions,due,meetings,hr,activity}')`);
 
   console.log('Who is not pushed');
   await notify(P, 'assigned', 'To someone without a device');
