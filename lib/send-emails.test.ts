@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compose, resendSender, sendEmails } from "../scripts/send-emails.mjs";
+import { buttonLabel, compose, resendSender, sendEmails, topicOf } from "../scripts/send-emails.mjs";
 
 type Row = { id: number; recipient_id: string; to_email: string; full_name: string; kind: string; subject: string; body: string; link: string | null; attempts: number; lane: string };
 const row = (over: Partial<Row>): Row => ({ id: 1, recipient_id: "a", to_email: "a@x.in", full_name: "Asha Rao", kind: "assigned", subject: "S", body: "B", link: "/tasks/1", attempts: 1, lane: "notice", ...over });
@@ -37,6 +37,52 @@ describe("compose", () => {
     const m = compose([row({ body: '<script>alert("x")</script>' })], "https://x.in");
     expect(m.html).not.toContain("<script>");
     expect(m.html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("email layout", () => {
+  it("puts a button on a single notification, named for where it leads", () => {
+    const m = compose([row({ body: "Test user gave you a task: Email test", link: "/tasks/9" })], "https://x.in");
+    expect(m.html).toContain("Open task");
+    expect(m.html).toContain('href="https://x.in/tasks/9"');
+    expect(m.html).toContain("Assigned to you");
+    expect(m.text).toContain("Open task: https://x.in/tasks/9");
+  });
+  it("groups a digest under headings in a fixed order", () => {
+    const m = compose(
+      [row({ id: 1, kind: "comment", body: "A comment" }), row({ id: 2, kind: "assigned", body: "A task" }), row({ id: 3, kind: "due_today", body: "Due one" })],
+      "https://x.in",
+    );
+    const h = m.html;
+    expect(h.indexOf("Assigned to you")).toBeLessThan(h.indexOf("Due and overdue"));
+    expect(h.indexOf("Due and overdue")).toBeLessThan(h.indexOf("Task updates"));
+    expect(m.text.indexOf("ASSIGNED TO YOU")).toBeLessThan(m.text.indexOf("TASK UPDATES"));
+    expect(h).toContain("3 updates");
+  });
+  it("labels due and overdue reminders as such", () => {
+    expect(compose([row({ kind: "due_today", body: "Due" })], "https://x.in").html).toContain("Due today");
+    expect(compose([row({ kind: "overdue", body: "Late" })], "https://x.in").html).toContain("Overdue");
+  });
+  it("maps kinds like the database does", () => {
+    expect(topicOf("recurring")).toBe("assigned");
+    expect(topicOf("meeting_invite")).toBe("meetings");
+    expect(topicOf("request_hr_reply")).toBe("hr");
+    expect(topicOf("hr_file")).toBe("hr");
+    expect(topicOf("test")).toBe("test");
+    expect(topicOf("nonsense")).toBe("other");
+  });
+  it("names the button for each destination", () => {
+    expect(buttonLabel("/calendar/1")).toBe("Open meeting");
+    expect(buttonLabel("/hr/requests")).toBe("Open request");
+    expect(buttonLabel("/me/requests")).toBe("Open request");
+    expect(buttonLabel("/me/documents")).toBe("Open documents");
+    expect(buttonLabel("/account")).toBe("Open account");
+    expect(buttonLabel(null)).toBe("Open Hard-Code Ops");
+  });
+  it("has a hidden preview line and escapes the link", () => {
+    const m = compose([row({ body: "Preview me", link: '/tasks/1"><x' })], "https://x.in");
+    expect(m.html).toContain("Preview me</div>");
+    expect(m.html).not.toContain('"><x');
   });
 });
 

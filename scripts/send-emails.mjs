@@ -14,6 +14,54 @@ const MAX_LISTED = 15;
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// Mirrors ops.email_group(): which heading a notification sits under. Order here is the order of sections in a digest.
+const TOPICS = [
+  { id: "assigned", label: "Assigned to you" },
+  { id: "mentions", label: "Mentions" },
+  { id: "due", label: "Due and overdue", warn: true },
+  { id: "meetings", label: "Meetings" },
+  { id: "hr", label: "HR" },
+  { id: "activity", label: "Task updates" },
+  { id: "test", label: "Test" },
+  { id: "other", label: "Updates" },
+];
+export function topicOf(kind) {
+  const k = String(kind ?? "");
+  if (k === "assigned" || k === "recurring") return "assigned";
+  if (k === "mentioned") return "mentions";
+  if (k === "due_today" || k === "overdue") return "due";
+  if (k === "status" || k === "dates" || k === "comment") return "activity";
+  if (k.startsWith("meeting_")) return "meetings";
+  if (k.startsWith("request_") || k === "hr_file") return "hr";
+  if (k === "test") return "test";
+  return "other";
+}
+const LABELS = { due_today: "Due today", overdue: "Overdue" };
+const labelOf = (r) => LABELS[r.kind] ?? TOPICS.find((t) => t.id === topicOf(r.kind)).label;
+
+/** The button text follows where the link leads. */
+export function buttonLabel(link) {
+  const l = String(link ?? "");
+  if (l.startsWith("/tasks/")) return "Open task";
+  if (l.startsWith("/calendar/")) return "Open meeting";
+  if (l.includes("/requests")) return "Open request";
+  if (l.startsWith("/me/documents")) return "Open documents";
+  if (l.startsWith("/account")) return "Open account";
+  return "Open Hard-Code Ops";
+}
+
+const INK = "#18181b";
+const MUTED = "#71717a";
+const LINE = "#e4e4e7";
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const pill = (text, warn) =>
+  `<span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.02em;` +
+  `background:${warn ? "#fef2f2" : "#f4f4f5"};color:${warn ? "#b91c1c" : "#3f3f46"}">${esc(text)}</span>`;
+const button = (href, text) =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 4px"><tr>` +
+  `<td bgcolor="${INK}" style="border-radius:8px"><a href="${esc(href)}" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px">${esc(text)}</a></td>` +
+  `</tr></table>`;
+
 /** One person's claimed rows -> one message. */
 export function compose(rows, appUrl) {
   const base = appUrl.replace(/\/+$/, "");
@@ -22,21 +70,65 @@ export function compose(rows, appUrl) {
   const url = (r) => (r.link ? `${base}${r.link}` : base);
   const listed = rows.slice(0, MAX_LISTED);
   const more = rows.length - listed.length;
-  const subject = rows.length === 1 ? first.subject : `${rows.length} updates in Hard-Code Ops`;
+  const single = rows.length === 1;
+  const subject = single ? first.subject : `${rows.length} updates in Hard-Code Ops`;
+  const account = `${base}/account`;
 
-  const textLines = listed.map((r) => (rows.length === 1 ? `${r.body}\n${url(r)}` : `- ${r.body}\n  ${url(r)}`));
-  if (more > 0) textLines.push(`...and ${more} more. Open ${base} to see them.`);
-  const text = [`Hi ${name},`, "", ...textLines, "", `Choose what you get by email: ${base}/account`].join("\n");
+  const sections = TOPICS.map((t) => ({ ...t, items: listed.filter((r) => topicOf(r.kind) === t.id) })).filter((t) => t.items.length > 0);
 
-  const items = listed
-    .map((r) => `<li style="margin:0 0 10px"><a href="${esc(url(r))}" style="color:#111;text-decoration:none">${esc(r.body)}</a></li>`)
-    .join("");
+  // Plain text
+  const textBody = single
+    ? [`[${labelOf(first)}]`, first.body, `${buttonLabel(first.link)}: ${url(first)}`]
+    : [
+        `You have ${rows.length} updates.`,
+        ...sections.flatMap((t) => ["", t.label.toUpperCase(), ...t.items.map((r) => `- ${r.body}\n  ${url(r)}`)]),
+        ...(more > 0 ? ["", `...and ${more} more. Open ${base} to see them.`] : []),
+      ];
+  const text = [`Hi ${name},`, "", ...textBody, "", "--", `Choose what you get by email: ${account}`].join("\n");
+
+  // HTML
+  const content = single
+    ? `<p style="margin:0 0 10px">${pill(labelOf(first), topicOf(first.kind) === "due")}</p>` +
+      `<p style="margin:0;font-size:18px;line-height:1.45;font-weight:600;color:${INK}">${esc(first.body)}</p>` +
+      button(url(first), buttonLabel(first.link))
+    : `<p style="margin:0 0 4px;font-size:15px;color:${INK}">You have <strong>${rows.length} updates</strong>.</p>` +
+      sections
+        .map(
+          (t) =>
+            `<p style="margin:22px 0 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${t.warn ? "#b91c1c" : MUTED}">${esc(t.label)}</p>` +
+            `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">` +
+            t.items
+              .map(
+                (r) =>
+                  `<tr><td style="padding:10px 0;border-top:1px solid ${LINE};font-size:15px;line-height:1.45">` +
+                  `<a href="${esc(url(r))}" style="color:${INK};text-decoration:none">${esc(r.body)}</a>` +
+                  `<span style="color:${MUTED}"> &rarr;</span></td></tr>`,
+              )
+              .join("") +
+            `</table>`,
+        )
+        .join("") +
+      (more > 0 ? `<p style="margin:18px 0 0;font-size:14px;color:${MUTED}">...and ${more} more. <a href="${esc(base)}" style="color:${INK}">Open Hard-Code Ops</a> to see them.</p>` : "") +
+      button(base, "Open Hard-Code Ops");
+
+  const preheader = single ? first.body : `${rows.length} updates waiting for you`;
   const html =
-    `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#111">` +
-    `<p>Hi ${esc(name)},</p><ul style="padding-left:18px">${items}</ul>` +
-    (more > 0 ? `<p>...and ${more} more. <a href="${esc(base)}">Open Hard-Code Ops</a>.</p>` : "") +
-    `<p style="color:#666;font-size:13px">Choose what you get by email in <a href="${esc(base)}/account" style="color:#666">your account</a>.</p></div>`;
-  return { subject, text, html, unsubscribe: `${base}/account` };
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<meta name="color-scheme" content="light"><title>${esc(subject)}</title></head>` +
+    `<body style="margin:0;padding:0;background:#f4f4f5;font-family:${FONT};color:${INK}">` +
+    `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${esc(preheader)}</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f4f5"><tr><td align="center" style="padding:24px 12px">` +
+    `<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;background:#ffffff;border:1px solid ${LINE};border-radius:12px;overflow:hidden">` +
+    `<tr><td bgcolor="${INK}" style="padding:16px 24px;font-size:15px;font-weight:700;letter-spacing:.01em;color:#ffffff">Hard-Code <span style="font-weight:400;color:#a1a1aa">Ops</span></td></tr>` +
+    `<tr><td style="padding:24px 24px 8px;font-size:15px;line-height:1.5">` +
+    `<p style="margin:0 0 16px;color:${INK}">Hi ${esc(name)},</p>${content}</td></tr>` +
+    `<tr><td style="padding:20px 24px 24px;font-size:12px;line-height:1.5;color:${MUTED}">` +
+    `<p style="margin:0;border-top:1px solid ${LINE};padding-top:16px">You get this because email notifications are on for your account. ` +
+    `<a href="${esc(account)}" style="color:${MUTED};text-decoration:underline">Choose what you get by email</a> or turn it off.</p>` +
+    `</td></tr></table>` +
+    `<p style="margin:14px 0 0;font-size:12px;color:#a1a1aa">Hard-Code &middot; hard-code.in</p>` +
+    `</td></tr></table></body></html>`;
+  return { subject, text, html, unsubscribe: account };
 }
 
 /** Delivery through Resend. Returns { ok, id } or { ok: false, error, permanent, fatal }. */
